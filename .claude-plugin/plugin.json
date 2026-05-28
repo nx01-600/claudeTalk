@@ -1,0 +1,8 @@
+{
+  "name": "claudeTalk",
+  "version": "0.1.0",
+  "description": "Le da voz a Claude Code: lee en voz alta sus respuestas (TTS con edge-tts) cuando el modo voz esta activo. Etapa 1 de un futuro modo de conversacion en vivo.",
+  "author": {
+    "name": "Nicolas Carreno"
+  }
+}

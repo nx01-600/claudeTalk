@@ -1,0 +1,16 @@
+{
+  "description": "claudeTalk: al terminar Claude de responder, lee la respuesta en voz alta si el modo voz esta activo.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/scripts/speak.ps1\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
