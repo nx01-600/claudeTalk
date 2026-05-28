@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claudeTalk",
+  "description": "Marketplace local de claudeTalk: le da voz a Claude Code.",
+  "owner": {
+    "name": "Nicolas Carreno"
+  },
+  "plugins": [
+    {
+      "name": "claudeTalk",
+      "description": "Le da voz a Claude Code: lee en voz alta sus respuestas (TTS con edge-tts) cuando el modo voz esta activo.",
+      "version": "0.1.0",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
