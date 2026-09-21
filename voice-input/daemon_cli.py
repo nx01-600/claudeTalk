@@ -58,12 +58,13 @@ if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
     sys.exit(0)
 
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QMenu, QMessageBox, QSystemTrayIcon
 
 import audio
 import config as cfg
 import hotkey
+import icon
 import inject
 import overlay
 import sounds
@@ -208,28 +209,7 @@ bridge.quit_requested.connect(app.quit)
 
 
 def _tray_icon() -> QIcon:
-    size = 64
-    pixmap = QPixmap(size, size)
-    pixmap.fill(QColor(0, 0, 0, 0))
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    shape = QPainterPath()
-    shape.addRoundedRect(4, 4, size - 8, size - 8, 16, 16)
-    painter.fillPath(shape, QColor(255, 255, 255))
-    painter.setPen(QColor(0, 0, 0, 60))
-    painter.drawPath(shape)
-    painter.setPen(QColor(0, 0, 0, 0))
-    heights = [16, 26, 36, 26, 16]
-    bar_w, gap = 6, 5
-    total = len(heights) * bar_w + (len(heights) - 1) * gap
-    x = (size - total) / 2
-    for h in heights:
-        bar = QPainterPath()
-        bar.addRoundedRect(x, size / 2 - h / 2, bar_w, h, bar_w / 2, bar_w / 2)
-        painter.fillPath(bar, QColor(0, 0, 0))
-        x += bar_w + gap
-    painter.end()
-    return QIcon(pixmap)
+    return QIcon(icon.paint_icon(64))
 
 
 tray = QSystemTrayIcon(_tray_icon(), app)
@@ -253,6 +233,7 @@ def _quit_from_tray():
         QMessageBox.StandardButton.No,
     )
     if answer == QMessageBox.StandardButton.Yes:
+        PERSISTENT_FLAG_PATH.unlink(missing_ok=True)
         app.quit()
 
 
@@ -279,6 +260,7 @@ tray.show()
 # counting claude.exe processes did exactly that.
 
 SESSIONS_PATH = cfg.CONFIG_DIR / "sessions.txt"
+PERSISTENT_FLAG_PATH = cfg.CONFIG_DIR / "persistent.flag"
 STILL_ACTIVE = 259
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 STARTUP_GRACE_S = 30
@@ -324,6 +306,8 @@ def _live_sessions() -> list[int]:
 
 
 def _auto_watchdog():
+    if PERSISTENT_FLAG_PATH.exists():
+        return  # launched as the standalone app; not tied to any Claude Code session
     if _live_sessions():
         return
     if time.monotonic() - _started_at < STARTUP_GRACE_S:

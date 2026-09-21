@@ -23,5 +23,13 @@ If Not fso.FileExists(py) Then
     WScript.Quit 1
 End If
 
+' Marks this run as the standalone app, so it stays open even if a Claude
+' Code SessionStart hook later launches its own --auto instance and that
+' one later decides no session is left.
+appData = sh.ExpandEnvironmentStrings("%APPDATA%") & "\claudeTalk"
+If Not fso.FolderExists(appData) Then fso.CreateFolder(appData)
+Set flag = fso.CreateTextFile(appData & "\persistent.flag", True)
+flag.Close
+
 sh.CurrentDirectory = root & "\voice-input"
 sh.Run """" & py & """ """ & script & """", 0, False
