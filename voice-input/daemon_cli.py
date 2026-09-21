@@ -1,8 +1,8 @@
 """Fase 1: nucleo funcional sin interfaz. Hotkey -> graba -> transcribe -> inyecta.
 
-Ctrl+Shift+Espacio: mantener apretado graba, soltar corta (push-to-talk). El
-corte por silencio sigue activo por si se suelta la tecla sin querer o se
-prefiere no mantenerla.
+Ctrl+Shift+Espacio: un toque arranca a grabar. Corta solo cuando hay 2s de
+silencio sostenido o cuando se vuelve a tocar el hotkey (toggle, no hay que
+mantener apretado).
 Esc durante la grabacion: cancela y descarta.
 """
 
@@ -59,16 +59,13 @@ app, overlay_bridge = overlay.create_app_and_overlay()
 def _should_cancel():
     """Polling desde audio.record_until_silence (cada BLOCK_MS).
 
-    RegisterHotKey no tiene evento de soltar tecla, asi que el release y el
-    Esc se detectan aca con GetAsyncKeyState en vez de callbacks separados.
+    Corte manual = segunda pulsacion del hotkey (ver _on_press), que setea
+    force_stop. Esc se detecta aca con GetAsyncKeyState.
     """
     if force_stop.is_set() or cancel_flag.is_set():
         return True
     if hotkey.is_key_down(hotkey.VK_ESCAPE):
         cancel_flag.set()
-        return True
-    if not hotkey.is_key_down(hotkey.VK_SPACE):
-        force_stop.set()
         return True
     return False
 
@@ -120,12 +117,16 @@ def _worker():
 
 
 def _on_press():
+    """Toggle: primera pulsacion arranca, segunda corta manualmente
+    (mientras se sigue grabando/transcribiendo, cualquier pulsacion extra
+    solo confirma el corte, no pasa nada raro)."""
     global state
     with state_lock:
         if state == "idle":
             state = "recording"
             threading.Thread(target=_worker, daemon=True).start()
-        # si ya esta grabando, es auto-repeat de Windows por tener la tecla apretada: se ignora
+        else:
+            force_stop.set()
 
 
 global_hotkey = hotkey.GlobalHotkey(on_press=_on_press)

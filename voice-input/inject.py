@@ -80,9 +80,23 @@ def _send_ctrl_v():
     _key_event(VK_CONTROL, key_up=True)
 
 
+def _open_clipboard(retries: int = 10, delay_s: float = 0.02) -> bool:
+    """OpenClipboard falla si otro proceso lo tiene abierto (historial de
+    portapapeles, un clipboard manager, etc.). Es tipicamente una fraccion
+    de segundo, asi que reintentar unas pocas veces alcanza; sin retry esto
+    fallaba en silencio y el texto dictado no llegaba a ningun lado, sin
+    ningun error en consola."""
+    for _ in range(retries):
+        if user32.OpenClipboard(0):
+            return True
+        time.sleep(delay_s)
+    return False
+
+
 def _get_clipboard_text() -> str | None:
     """Lee CF_UNICODETEXT del portapapeles, o None si no hay texto (u otro formato)."""
-    if not user32.OpenClipboard(0):
+    if not _open_clipboard():
+        print("[portapapeles] OpenClipboard fallo al leer")
         return None
     try:
         if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
@@ -101,17 +115,20 @@ def _get_clipboard_text() -> str | None:
         user32.CloseClipboard()
 
 
-def _set_clipboard_text(text: str):
+def _set_clipboard_text(text: str) -> bool:
     data = text.encode("utf-16-le") + b"\x00\x00"
     handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
     ptr = kernel32.GlobalLock(handle)
     ctypes.memmove(ptr, data, len(data))
     kernel32.GlobalUnlock(handle)
 
-    user32.OpenClipboard(0)
+    if not _open_clipboard():
+        print("[portapapeles] OpenClipboard fallo al escribir, texto perdido")
+        return False
     user32.EmptyClipboard()
     user32.SetClipboardData(CF_UNICODETEXT, handle)
     user32.CloseClipboard()
+    return True
 
 
 def copy_to_clipboard(text: str):
