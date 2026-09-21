@@ -1,4 +1,4 @@
-"""Global hotkey as a key chord (default: Left Alt + Right Ctrl).
+"""Global hotkey as a key chord (default: Ctrl + Shift + Space).
 
 RegisterHotKey does not work here: its MOD_ALT/MOD_CONTROL flags cannot tell
 left from right, and it rejects a chord made only of modifiers. A low-level

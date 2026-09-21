@@ -1,6 +1,6 @@
 """Dictation daemon: hotkey -> records (with overlay) -> transcribes -> pastes.
 
-A single tap of the chord (left Alt + right Ctrl by default) starts
+A single tap of the chord (Ctrl + Shift + Space by default) starts
 recording. It cuts either on sustained silence (configurable) or when the
 chord is tapped again (toggle, no need to hold it down). While recording,
 the floating pill (overlay.py) is shown; its gear opens settings.

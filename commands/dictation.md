@@ -3,7 +3,7 @@ description: Starts claudeTalk voice dictation if it isn't already running (sits
 allowed-tools: ["Bash"]
 ---
 
-Run this command with Bash and then tell the user, in one line, that dictation is now running (or was already running) and what the default activation chord is (Left Alt + Right Ctrl, changeable from the overlay's gear):
+Run this command with Bash and then tell the user, in one line, that dictation is now running (or was already running) and what the default activation chord is (Ctrl + Shift + Space, changeable from the overlay's gear):
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/voice-daemon-ensure.ps1"

@@ -11,11 +11,12 @@ from pathlib import Path
 CONFIG_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "claudeTalk"
 CONFIG_PATH = CONFIG_DIR / "dictation.json"
 
-VK_LMENU = 0xA4
-VK_RCONTROL = 0xA3
+VK_CONTROL = 0x11
+VK_SHIFT = 0x10
+VK_SPACE = 0x20
 
 DEFAULTS = {
-    "hotkey": [VK_LMENU, VK_RCONTROL],
+    "hotkey": [VK_CONTROL, VK_SHIFT, VK_SPACE],  # generic Ctrl/Shift: either side works
     "silence_ms": 2000,
     "sound": True,
     "theme": "light",  # light | dark
@@ -25,6 +26,9 @@ DEFAULTS = {
 }
 
 KEY_NAMES = {
+    0x11: "Ctrl",
+    0x10: "Shift",
+    0x12: "Alt",
     0xA4: "Left Alt",
     0xA5: "Right Alt",
     0xA2: "Left Ctrl",

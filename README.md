@@ -15,7 +15,7 @@ Dictation comes with a floating *liquid glass* overlay (black and white, light o
 
 | | |
 |---|---|
-| **Voice dictation** | A tap of `Left Alt + Right Ctrl` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
+| **Voice dictation** | A tap of `Ctrl + Shift + Space` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
 | **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. The text **always** ends up on the clipboard too. |
 | **Liquid glass overlay** | Floating pill with frosted glass, live volume bars, and a settings gear. Never steals focus. |
 | **Live settings** | Activation keys (captures the chord you press), silence cutoff, sound, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
@@ -60,7 +60,7 @@ Done. The next Claude Code session already starts with dictation active.
 ### Dictate
 
 1. Focus the window where you want the text (the Claude Code terminal, an editor, whatever).
-2. Tap **Left Alt + Right Ctrl**. A soft chime plays and the pill appears.
+2. Tap **Ctrl + Shift + Space**. A soft chime plays and the pill appears.
 3. Talk. Once you stop for 2 seconds (or tap the chord again) it transcribes and pastes.
 
 If you switched windows in the meantime, it pastes nothing: the text stays on the clipboard for `Ctrl+V`.
