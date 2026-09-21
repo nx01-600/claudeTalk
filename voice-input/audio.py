@@ -1,0 +1,77 @@
+"""Captura de audio con corte automático por silencio."""
+
+import time
+
+import numpy as np
+import sounddevice as sd
+
+SAMPLE_RATE = 16000
+CHANNELS = 1
+BLOCK_MS = 30
+CALIBRATION_MS = 300
+SILENCE_HOLD_MS = 1200
+MIN_SPEECH_MS = 400
+MAX_RECORDING_S = 60
+SILENCE_MARGIN = 2.5  # multiplo del piso de ruido para considerar "hay voz"
+
+
+class RecordingCancelled(Exception):
+    pass
+
+
+def _rms(block: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(np.square(block.astype(np.float32)))))
+
+
+def record_until_silence(should_cancel=None) -> np.ndarray:
+    """Graba desde el microfono default hasta detectar silencio sostenido.
+
+    should_cancel: callable opcional que devuelve True para cortar la grabacion
+    (usada por la segunda pulsacion del hotkey o Esc).
+    """
+    block_size = int(SAMPLE_RATE * BLOCK_MS / 1000)
+    blocks: list[np.ndarray] = []
+    noise_floor_samples: list[float] = []
+    noise_floor = None
+    silence_ms = 0
+    speech_ms = 0
+    start = time.monotonic()
+
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="float32", blocksize=block_size
+    ) as stream:
+        while True:
+            if should_cancel is not None and should_cancel():
+                raise RecordingCancelled()
+
+            elapsed_ms = (time.monotonic() - start) * 1000
+            if elapsed_ms > MAX_RECORDING_S * 1000:
+                break
+
+            block, _ = stream.read(block_size)
+            block = block[:, 0]
+            level = _rms(block)
+            blocks.append(block.copy())
+
+            if elapsed_ms < CALIBRATION_MS:
+                noise_floor_samples.append(level)
+                continue
+
+            if noise_floor is None:
+                noise_floor = max(np.mean(noise_floor_samples), 1e-4)
+
+            is_speech = level > noise_floor * SILENCE_MARGIN
+
+            if is_speech:
+                silence_ms = 0
+                speech_ms += BLOCK_MS
+            else:
+                silence_ms += BLOCK_MS
+
+            if speech_ms >= MIN_SPEECH_MS and silence_ms >= SILENCE_HOLD_MS:
+                break
+
+    if not blocks:
+        return np.zeros(0, dtype=np.float32)
+
+    return np.concatenate(blocks)
