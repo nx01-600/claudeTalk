@@ -36,7 +36,15 @@ user32.GetForegroundWindow.restype = wintypes.HWND
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
 VK_CONTROL = 0x11
+VK_SHIFT = 0x10
+VK_MENU = 0x12
+VK_LWIN = 0x5B
 VK_V = 0x56
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+TOKEN_QUERY = 0x0008
+TokenElevation = 20
+ERROR_ACCESS_DENIED = 5
 
 GMEM_MOVEABLE = 0x0002
 CF_UNICODETEXT = 13
@@ -67,17 +75,87 @@ def get_foreground_window() -> int:
     return user32.GetForegroundWindow()
 
 
-def _key_event(vk: int, key_up: bool):
+def _key_event(vk: int, key_up: bool) -> int:
+    """Devuelve cuantos eventos inserto SendInput: 1 si entro, 0 si Windows
+    lo bloqueo (UIPI: la ventana destino corre con mas privilegios que este
+    proceso). Ese 0 es la unica senal que da Windows de que el paste no va a
+    llegar; antes se ignoraba y quedaba como si hubiera pegado."""
     flags = KEYEVENTF_KEYUP if key_up else 0
     inp = INPUT(type=INPUT_KEYBOARD, union=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, None)))
-    user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+    return user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
 
 
-def _send_ctrl_v():
-    _key_event(VK_CONTROL, key_up=False)
-    _key_event(VK_V, key_up=False)
-    _key_event(VK_V, key_up=True)
-    _key_event(VK_CONTROL, key_up=True)
+def _send_keys(events: list[tuple[int, bool]]) -> int:
+    """Manda varios eventos en UNA llamada a SendInput, para que ninguna tecla
+    fisica se cuele en el medio de la combinacion. Devuelve cuantos entraron."""
+    array_type = INPUT * len(events)
+    inputs = array_type()
+    for i, (vk, key_up) in enumerate(events):
+        flags = KEYEVENTF_KEYUP if key_up else 0
+        inputs[i] = INPUT(type=INPUT_KEYBOARD, union=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, None)))
+    return user32.SendInput(len(events), inputs, ctypes.sizeof(INPUT))
+
+
+def _send_ctrl_v() -> int:
+    """Devuelve cuantos de los 4 eventos de teclado entraron (esperado: 4)."""
+    return _send_keys([(VK_CONTROL, False), (VK_V, False), (VK_V, True), (VK_CONTROL, True)])
+
+
+def _is_key_down(vk: int) -> bool:
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def _wait_modifiers_released(timeout_s: float = 1.0):
+    """El hotkey es Ctrl+Shift+Espacio. Si el usuario corta la grabacion con
+    una segunda pulsacion, el paste sale ~200ms despues y Shift suele seguir
+    fisicamente apretado: la app recibe Ctrl+Shift+V, que en muchas apps no
+    es "pegar" (VS Code abre el preview de Markdown, por ejemplo). Se espera
+    a que suelte Shift/Alt/Win; si no los suelta, se mandan key-up sinteticos
+    para que Windows los considere sueltos durante la combinacion."""
+    stray = (VK_SHIFT, VK_MENU, VK_LWIN)
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not any(_is_key_down(vk) for vk in stray):
+            return
+        time.sleep(0.02)
+    _send_keys([(vk, True) for vk in stray if _is_key_down(vk)])
+
+
+def _describe_window(hwnd: int) -> str:
+    length = user32.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buf, length + 1)
+    title = buf.value
+
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    exe = "?"
+    elevated = "?"
+    process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if process:
+        size = wintypes.DWORD(1024)
+        path_buf = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(process, 0, path_buf, ctypes.byref(size)):
+            exe = path_buf.value.rsplit("\\", 1)[-1]
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        token = wintypes.HANDLE()
+        if advapi32.OpenProcessToken(process, TOKEN_QUERY, ctypes.byref(token)):
+            elevation = wintypes.DWORD()
+            returned = wintypes.DWORD()
+            if advapi32.GetTokenInformation(
+                token, TokenElevation, ctypes.byref(elevation), ctypes.sizeof(elevation), ctypes.byref(returned)
+            ):
+                elevated = "si" if elevation.value else "no"
+            kernel32.CloseHandle(token)
+        elif ctypes.get_last_error() == ERROR_ACCESS_DENIED:
+            elevated = "si (acceso denegado al token: corre con mas privilegios que este daemon)"
+        kernel32.CloseHandle(process)
+
+    return f"hwnd={hwnd} titulo={title!r} exe={exe} elevado={elevated}"
+
+
+def _self_is_admin() -> bool:
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())
 
 
 def _open_clipboard(retries: int = 10, delay_s: float = 0.02) -> bool:
@@ -145,11 +223,24 @@ def paste_text_if_focus_unchanged(text: str, expected_hwnd: int) -> bool:
     """
     _set_clipboard_text(text)
 
-    if get_foreground_window() != expected_hwnd:
+    current = get_foreground_window()
+    if current != expected_hwnd:
+        print(f"[diag] foco cambio: esperado {_describe_window(expected_hwnd)} / actual {_describe_window(current)}")
         return False
 
+    _wait_modifiers_released()
     time.sleep(PASTE_DELAY_BEFORE_S)
-    _send_ctrl_v()
+    mods = (
+        f"shift={_is_key_down(VK_SHIFT)} ctrl={_is_key_down(VK_CONTROL)} "
+        f"alt={_is_key_down(VK_MENU)} win={_is_key_down(VK_LWIN)}"
+    )
+    sent = _send_ctrl_v()
     time.sleep(PASTE_DELAY_AFTER_S)
+    print(
+        f"[diag] destino {_describe_window(expected_hwnd)} | daemon_admin={_self_is_admin()} "
+        f"| modificadores al pegar: {mods} | SendInput acepto {sent}/4 eventos"
+    )
+    if sent < 4:
+        print("[diag] Windows bloqueo el Ctrl+V (UIPI): la ventana destino corre elevada y el daemon no")
 
-    return True
+    return sent == 4

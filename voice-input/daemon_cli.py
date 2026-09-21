@@ -1,15 +1,26 @@
-"""Fase 1: nucleo funcional sin interfaz. Hotkey -> graba -> transcribe -> inyecta.
+"""Daemon de dictado: hotkey -> graba (con overlay) -> transcribe -> pega.
 
 Ctrl+Shift+Espacio: un toque arranca a grabar. Corta solo cuando hay 2s de
 silencio sostenido o cuando se vuelve a tocar el hotkey (toggle, no hay que
-mantener apretado).
+mantener apretado). Mientras graba se ve la pildora flotante (overlay.py).
 Esc durante la grabacion: cancela y descarta.
+
+Hilos: el principal corre el loop de Qt (overlay); el hotkey tiene su propio
+message loop Win32; cada grabacion corre en un hilo de trabajo. Todo lo que
+toca el overlay pasa por senales Qt (thread-safe).
 """
 
+import ctypes
 import sys
 import threading
 import time
 import winsound
+
+# La consola de Windows arranca en cp1252: imprimir un titulo de ventana con
+# emoji o el texto dictado con tildes rompia con UnicodeEncodeError o salia
+# como "�". Se pasa la consola y stdout a UTF-8.
+ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from PySide6.QtCore import QTimer
 
@@ -54,6 +65,7 @@ transcriber = ResidentTranscriber(
 )
 
 app, overlay_bridge = overlay.create_app_and_overlay()
+overlay_bridge.settings_clicked.connect(lambda: print("[ajustes] todavia no hay panel de ajustes"))
 
 
 def _should_cancel():
@@ -73,8 +85,8 @@ def _should_cancel():
 def _worker():
     global state
     hwnd = inject.get_foreground_window()
-    _beep(*BEEP_START)
     overlay_bridge.recording_started.emit()
+    _beep(*BEEP_START)
     print("[grabando] habla ahora...")
     try:
         pcm = audio.record_until_silence(
@@ -109,7 +121,7 @@ def _worker():
             print("[inyectado]")
         else:
             _beep_seq(BEEP_CLIPBOARD)
-            print("[foco cambio] texto copiado al portapapeles")
+            print("[no pegado] texto queda en el portapapeles (ver [diag] arriba)")
 
     force_stop.clear()
     with state_lock:
