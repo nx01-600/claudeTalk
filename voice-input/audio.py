@@ -76,14 +76,18 @@ def record_until_silence(
             level = _rms(block)
             blocks.append(block.copy())
 
-            if elapsed_ms < CALIBRATION_MS:
+            if elapsed_ms < CALIBRATION_MS or not noise_floor_samples:
+                # also keeps collecting past CALIBRATION_MS if the very first
+                # block was slow to arrive (device cold start): otherwise the
+                # mean below runs on an empty list and yields NaN, which
+                # pins the level meter at max and breaks silence detection.
                 noise_floor_samples.append(level)
                 if on_level is not None:
                     on_level(0.0)
                 continue
 
             if noise_floor is None:
-                noise_floor = max(np.mean(noise_floor_samples), 1e-4)
+                noise_floor = max(float(np.mean(noise_floor_samples)), 1e-4)
 
             floor_threshold = noise_floor * silence_margin
             if level > floor_threshold:

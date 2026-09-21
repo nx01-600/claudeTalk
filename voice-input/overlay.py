@@ -319,7 +319,6 @@ class RecordingOverlay(_GlassWindow):
 
         self._levels_target = [0.0] * BAR_COUNT
         self._levels_shown = [0.0] * BAR_COUNT
-        self._phase = 0.0
         self._slide = 1.0
         self._gear_path = _gear_path()
         self._gear_hover = False
@@ -425,7 +424,6 @@ class RecordingOverlay(_GlassWindow):
         self._levels_target = self._levels_target[1:] + [normalized]
 
     def _tick(self):
-        self._phase += 0.11
         for i in range(BAR_COUNT):
             self._levels_shown[i] = _lerp(self._levels_shown[i], self._levels_target[i], 0.35)
         self._gear_hover_t = _lerp(self._gear_hover_t, 1.0 if self._gear_hover else 0.0, 0.25)
@@ -484,8 +482,7 @@ class RecordingOverlay(_GlassWindow):
         center_y = top + HEIGHT / 2
         painter.setPen(Qt.PenStyle.NoPen)
         for i in range(BAR_COUNT):
-            breath = 0.10 + 0.07 * math.sin(self._phase + i * 0.9)
-            level = max(self._levels_shown[i], breath)
+            level = self._levels_shown[i]
             bar_h = BAR_MIN_HEIGHT + level * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT)
             x = start_x + i * (BAR_WIDTH + BAR_GAP)
             y = center_y - bar_h / 2
