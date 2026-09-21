@@ -40,6 +40,8 @@ VK_SHIFT = 0x10
 VK_MENU = 0x12
 VK_LWIN = 0x5B
 VK_V = 0x56
+VK_RETURN = 0x0D
+ENTER_DELAY_S = 0.08
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 TOKEN_QUERY = 0x0008
@@ -245,7 +247,7 @@ def copy_to_clipboard(text: str):
     _set_clipboard_text(text)
 
 
-def paste_text_if_focus_unchanged(text: str, expected_hwnd: int) -> bool:
+def paste_text_if_focus_unchanged(text: str, expected_hwnd: int, press_enter: bool = False) -> bool:
     """Pastes `text` only if the window focused when recording started is
     still the current one. `text` is left on the clipboard either way.
 
@@ -274,4 +276,8 @@ def paste_text_if_focus_unchanged(text: str, expected_hwnd: int) -> bool:
     if sent < 4:
         print(f"[diag] SendInput rejected events (GetLastError={ctypes.get_last_error()})")
 
+    if sent == 4 and press_enter:
+        # Give the app time to take the pasted text before submitting it.
+        time.sleep(ENTER_DELAY_S)
+        _send_keys([(VK_RETURN, False), (VK_RETURN, True)])
     return sent == 4

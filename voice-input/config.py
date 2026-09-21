@@ -20,6 +20,7 @@ DEFAULTS = {
     "silence_ms": 2000,
     "sensitivity": "medium",  # low | medium | high (how easily the mic counts sound as speech)
     "sound": True,
+    "auto_enter": False,  # press Enter after pasting (sends the message)
     "theme": "light",  # light | dark
     "glass": 60,  # 0..100, glass effect intensity (blur + transparency)
     "position": "bottom",  # bottom | top

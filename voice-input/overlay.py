@@ -92,6 +92,13 @@ class Style:
     def surface(self, alpha: int) -> QColor:
         return QColor(0, 0, 0, alpha) if self.dark else QColor(255, 255, 255, alpha)
 
+    def text(self, primary: bool = True) -> QColor:
+        """Text colors: pure black on the light theme (gray text on glass
+        reads washed out), near-white on the dark theme."""
+        if self.dark:
+            return QColor(255, 255, 255, 235 if primary else 150)
+        return QColor(0, 0, 0, 255 if primary else 175)
+
     # "Glass" slider: 0 = almost opaque and barely blurred, 100 = very clear
     # glass with a deep blur. Tint is what keeps text legible on busy backgrounds.
     def blur_px(self) -> int:
@@ -578,6 +585,7 @@ class SettingsPanel(_GlassWindow):
             ("segment", "Silence cutoff", "silence_ms", [(1000, "1 s"), (2000, "2 s"), (3000, "3 s")]),
             ("segment", "Mic sensitivity", "sensitivity", [("low", "Low"), ("medium", "Medium"), ("high", "High")]),
             ("toggle", "Sound on start", "sound", None),
+            ("toggle", "Send with Enter", "auto_enter", None),
             ("group", "Appearance", None, None),
             ("segment", "Theme", "theme", [("light", "Light"), ("dark", "Dark")]),
             ("slider", "Glass", "glass", None),
@@ -683,7 +691,7 @@ class SettingsPanel(_GlassWindow):
 
     def _tick(self):
         self._phase += 0.12
-        for key in ("sound",):
+        for key in ("sound", "auto_enter"):
             target = 1.0 if self.config.get(key) else 0.0
             self._toggle_t[key] = _lerp(self._toggle_t.get(key, target), target, 0.3)
         self.update()
@@ -883,7 +891,7 @@ class SettingsPanel(_GlassWindow):
         title_font = QFont(FONT_FAMILY, 11)
         title_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(title_font)
-        painter.setPen(st.fg(225))
+        painter.setPen(st.text())
         painter.drawText(QRectF(PAD + 4, PAD, 200, TITLE_H - 8), Qt.AlignmentFlag.AlignVCenter, "Dictation")
         self._paint_close(painter)
 
@@ -895,7 +903,7 @@ class SettingsPanel(_GlassWindow):
                 label = self._rows[index][1]
                 if label:
                     painter.setFont(QFont(FONT_FAMILY, 8))
-                    painter.setPen(st.fg(120))
+                    painter.setPen(st.text(False))
                     painter.drawText(
                         QRectF(PAD + 4, y - GROUP_TITLE_H, 200, GROUP_TITLE_H - 4),
                         Qt.AlignmentFlag.AlignBottom,
@@ -938,7 +946,7 @@ class SettingsPanel(_GlassWindow):
         if kind == "danger":
             self._paint_danger(painter, rect)
             return
-        painter.setPen(st.fg(225))
+        painter.setPen(st.text())
         painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignmentFlag.AlignVCenter, label)
         control = self._control_rect(index, rect)
         hovered = self._hover is not None and self._hover[0] == index and self._hover[1] is not None
@@ -992,7 +1000,7 @@ class SettingsPanel(_GlassWindow):
                 chip = QPainterPath()
                 chip.addRoundedRect(seg.adjusted(2, 2, -2, -2), SEG_H / 2 - 2, SEG_H / 2 - 2)
                 painter.fillPath(chip, st.fg(14))
-            painter.setPen(st.fg(230 if selected else 150))
+            painter.setPen(st.text() if selected else st.text(False))
             painter.drawText(seg, Qt.AlignmentFlag.AlignCenter, text)
 
     def _paint_slider(self, painter: QPainter, r: QRectF, key: str, hovered: bool):
@@ -1027,7 +1035,7 @@ class SettingsPanel(_GlassWindow):
         else:
             painter.fillPath(chip, st.fg(34 if hovered else 22))
         painter.setFont(QFont(FONT_FAMILY, 9))
-        painter.setPen(st.fg(230))
+        painter.setPen(st.text())
         painter.drawText(r, Qt.AlignmentFlag.AlignCenter, self._hotkey_text())
 
     def _paint_danger(self, painter: QPainter, rect: QRectF):
@@ -1039,11 +1047,11 @@ class SettingsPanel(_GlassWindow):
                 hl = QPainterPath()
                 hl.addRoundedRect(rect.adjusted(4, 4, -4, -4), 9, 9)
                 painter.fillPath(hl, st.fg(14))
-            painter.setPen(st.fg(225))
+            painter.setPen(st.text())
             painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignmentFlag.AlignVCenter, "Turn off dictation")
             return
         confirm, cancel = self._confirm_rects(rect)
-        painter.setPen(st.fg(200))
+        painter.setPen(st.text())
         painter.drawText(
             QRectF(rect.left() + 14, rect.top(), cancel.left() - rect.left() - 22, rect.height()),
             Qt.AlignmentFlag.AlignVCenter,
@@ -1054,7 +1062,7 @@ class SettingsPanel(_GlassWindow):
         cancel_path = QPainterPath()
         cancel_path.addRoundedRect(cancel, 14, 14)
         painter.fillPath(cancel_path, st.fg(34 if hover_part == "cancel" else 22))
-        painter.setPen(st.fg(220))
+        painter.setPen(st.text())
         painter.drawText(cancel, Qt.AlignmentFlag.AlignCenter, "Cancel")
         confirm_path = QPainterPath()
         confirm_path.addRoundedRect(confirm, 14, 14)

@@ -163,7 +163,7 @@ def _worker():
     if not text:
         print("[empty] nothing to paste")
     else:
-        ok = inject.paste_text_if_focus_unchanged(text, hwnd)
+        ok = inject.paste_text_if_focus_unchanged(text, hwnd, press_enter=bool(config.get("auto_enter")))
         if ok:
             print("[pasted]")
         else:
