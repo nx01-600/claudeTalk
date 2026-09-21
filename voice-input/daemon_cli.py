@@ -73,7 +73,7 @@ INITIAL_PROMPT = (
     "Dictado en espanol para Claude Code: commit, repositorio, hook, pull request, "
     "branch, terminal, script, Elementor, Rails, TypeScript, Docker, WordPress."
 )
-CLAUDE_CHECK_S = 20
+CLAUDE_CHECK_S = 5
 
 config = cfg.Config()
 

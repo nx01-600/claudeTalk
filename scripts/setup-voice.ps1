@@ -44,6 +44,12 @@ Write-Host "Instalando dependencias (puede tardar unos minutos) ..."
 & $venvPython -m pip install --upgrade pip --quiet
 & $venvPython -m pip install -r $requirements
 
+# El hook y el lanzador leen esta ruta: Claude Code corre el plugin desde su
+# cache, asi que el venv tiene que poder encontrarse fuera del plugin.
+$stateDir = Join-Path $env:APPDATA "claudeTalk"
+New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+Set-Content -Path (Join-Path $stateDir "venv-path.txt") -Value $VenvPath -Encoding utf8
+
 if ($Shortcut) {
     $desktop = [Environment]::GetFolderPath("Desktop")
     $link = Join-Path $desktop "claudeTalk Dictado.lnk"

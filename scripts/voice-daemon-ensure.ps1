@@ -4,19 +4,23 @@
 # El daemon se cierra solo cuando no queda ningun Claude Code abierto.
 #
 # Busca el interprete en este orden:
-#   1. <plugin>\voice-input\.venv        (instalacion dentro del repo)
-#   2. %LOCALAPPDATA%\claudeTalk\venv    (lo que crea scripts\setup-voice.ps1)
+#   1. la ruta guardada por setup-voice.ps1 en %APPDATA%\claudeTalk\venv-path.txt
+#   2. <plugin>\voice-input\.venv        (instalacion dentro del repo)
+#   3. %LOCALAPPDATA%\claudeTalk\venv    (lo que crea setup-voice.ps1 por defecto)
 # Si no hay ninguno, el dictado no esta instalado y no hace nada.
+# Claude Code ejecuta el plugin desde su cache, no desde el repo: por eso el
+# venv se busca fuera del plugin y no solo al lado de este script.
 
 $ErrorActionPreference = "SilentlyContinue"
 $root = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $root "voice-input\daemon_cli.py"
 
-$candidates = @(
-    (Join-Path $root "voice-input\.venv\Scripts\pythonw.exe"),
-    (Join-Path $env:LOCALAPPDATA "claudeTalk\venv\Scripts\pythonw.exe")
-)
-$py = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+$candidates = @()
+$saved = Join-Path $env:APPDATA "claudeTalk\venv-path.txt"
+if (Test-Path $saved) { $candidates += (Join-Path (Get-Content $saved -Raw).Trim() "Scripts\pythonw.exe") }
+$candidates += (Join-Path $root "voice-input\.venv\Scripts\pythonw.exe")
+$candidates += (Join-Path $env:LOCALAPPDATA "claudeTalk\venv\Scripts\pythonw.exe")
+$py = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $py) { exit 0 }
 
 $running = Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" |
