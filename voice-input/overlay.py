@@ -98,7 +98,11 @@ class Style:
         return int(round(_lerp(10, 36, self.glass)))
 
     def tint_alpha(self) -> int:
-        return int(round(_lerp(200, 60, self.glass)))
+        # Light glass needs a stronger wash than dark glass to stay readable
+        # over dark content; both get clearer as the slider goes up.
+        if self.dark:
+            return int(round(_lerp(200, 70, self.glass)))
+        return int(round(_lerp(225, 135, self.glass)))
 
     def saturation(self) -> float:
         return _lerp(1.15, 1.5, self.glass)
@@ -135,7 +139,7 @@ def _glassify(raw: QPixmap, style: Style) -> QPixmap:
         rgb = _box_blur(rgb, r)
     gray = rgb @ np.array([0.114, 0.587, 0.299], dtype=np.float32)  # BGR order
     rgb = gray[..., None] + (rgb - gray[..., None]) * style.saturation()
-    rgb = np.clip(rgb * (0.92 if style.dark else 1.06), 0, 255)
+    rgb = np.clip(rgb * (0.92 if style.dark else 1.18) + (0 if style.dark else 18), 0, 255)
     out = np.empty((sh, sw, 4), dtype=np.uint8)
     out[:, :, :3] = rgb.astype(np.uint8)
     out[:, :, 3] = 255
@@ -897,11 +901,6 @@ class SettingsPanel(_GlassWindow):
                     )
                 group_top = y
             elif item[0] == "group_end":
-                y = item[2]
-                if group_top is not None:
-                    box = QPainterPath()
-                    box.addRoundedRect(QRectF(PAD, group_top, PANEL_W - 2 * PAD, y - group_top), GROUP_RADIUS, GROUP_RADIUS)
-                    painter.fillPath(box, st.fg(14 if not st.dark else 18))
                 group_top = None
         # rows on top of their containers
         previous_in_group = False
