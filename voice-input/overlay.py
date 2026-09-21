@@ -98,11 +98,13 @@ class Style:
         return int(round(_lerp(10, 36, self.glass)))
 
     def tint_alpha(self) -> int:
-        # Light glass needs a stronger wash than dark glass to stay readable
-        # over dark content; both get clearer as the slider goes up.
+        # No solid wash: at the top of the slider the glass is just the blurred
+        # backdrop with its rims. Lower values add a faint theme-colored veil
+        # for legibility on very busy content. The theme itself only decides
+        # text/control colors and whether the backdrop is lightened or darkened.
         if self.dark:
-            return int(round(_lerp(200, 70, self.glass)))
-        return int(round(_lerp(225, 135, self.glass)))
+            return int(round(_lerp(90, 0, self.glass)))
+        return int(round(_lerp(120, 0, self.glass)))
 
     def saturation(self) -> float:
         return _lerp(1.15, 1.5, self.glass)
@@ -139,7 +141,7 @@ def _glassify(raw: QPixmap, style: Style) -> QPixmap:
         rgb = _box_blur(rgb, r)
     gray = rgb @ np.array([0.114, 0.587, 0.299], dtype=np.float32)  # BGR order
     rgb = gray[..., None] + (rgb - gray[..., None]) * style.saturation()
-    rgb = np.clip(rgb * (0.92 if style.dark else 1.18) + (0 if style.dark else 18), 0, 255)
+    rgb = np.clip(rgb * (0.8 if style.dark else 1.25) + (0 if style.dark else 28), 0, 255)
     out = np.empty((sh, sw, 4), dtype=np.uint8)
     out[:, :, :3] = rgb.astype(np.uint8)
     out[:, :, 3] = 255
