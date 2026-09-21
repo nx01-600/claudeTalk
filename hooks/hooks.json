@@ -1,5 +1,5 @@
 {
-  "description": "claudeTalk: al terminar Claude de responder, lee la respuesta en voz alta si el modo voz esta activo; al iniciar una sesion, deja corriendo el dictado por voz (si esta instalado).",
+  "description": "claudeTalk: when Claude finishes responding, reads the response out loud if voice mode is on; when a session starts, leaves voice dictation running (if installed).",
   "hooks": {
     "Stop": [
       {

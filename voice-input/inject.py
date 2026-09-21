@@ -1,16 +1,16 @@
-"""Inyeccion de texto via portapapeles + Ctrl+V simulado.
+"""Text injection via clipboard + simulated Ctrl+V.
 
-Version anterior escribia caracter por caracter con SendInput+KEYEVENTF_UNICODE
-para no depender del portapapeles. Eso evitaba el problema de tildes/enie que
-tienen keyboard.write()/pyautogui, pero character-by-character SendInput a
-veces llegaba a la ventana equivocada si el foco cambiaba a mitad de la
-inyeccion (bug de foco). Pegar por portapapeles es atomico: o el texto entero
-llega de una, o no llega nada; y como el texto ya esta en UTF-16 en el
-portapapeles, tildes/enie/¿¡ tampoco se pierden.
+The earlier version typed character by character with SendInput+KEYEVENTF_UNICODE
+to avoid depending on the clipboard. That avoided the accent/enie problem that
+keyboard.write()/pyautogui have, but character-by-character SendInput would
+sometimes land on the wrong window if focus changed mid-injection (a focus
+bug). Pasting via clipboard is atomic: either the whole text arrives at once,
+or none of it does; and since the text is already UTF-16 on the clipboard,
+accents/enie/¿¡ are not lost either.
 
-El texto dictado siempre queda en el portapapeles al terminar (se pegue o
-no), como red de seguridad: si el Ctrl+V no llego a destino por lo que sea,
-el usuario lo pega a mano con lo que ya tiene copiado.
+The dictated text is always left on the clipboard when done (whether pasted
+or not), as a safety net: if the Ctrl+V didn't reach its target for whatever
+reason, the user can paste it manually from what's already copied.
 """
 
 import ctypes
@@ -20,9 +20,9 @@ from ctypes import wintypes
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
-# ctypes asume restype=c_int (32 bits) si no se declara. GlobalAlloc/GlobalLock/
-# GetClipboardData devuelven punteros/handles de 64 bits: sin esto, Python de
-# 64 bits los trunca y corrompe la memoria o falla silenciosamente.
+# ctypes assumes restype=c_int (32 bits) if not declared. GlobalAlloc/GlobalLock/
+# GetClipboardData return 64-bit pointers/handles: without this, 64-bit Python
+# truncates them and either corrupts memory or fails silently.
 kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
 kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
 kernel32.GlobalLock.restype = ctypes.c_void_p
@@ -86,10 +86,11 @@ class HARDWAREINPUT(ctypes.Structure):
 
 
 class _INPUTunion(ctypes.Union):
-    # La union tiene que incluir MOUSEINPUT aunque no se use: es el miembro
-    # mas grande y define el tamano real de INPUT (40 bytes en x64). Con solo
-    # KEYBDINPUT quedaba en 32, cbSize no coincidia y SendInput devolvia 0
-    # (ERROR_INVALID_PARAMETER) en silencio: nada se pegaba nunca.
+    # The union has to include MOUSEINPUT even though it's unused: it's the
+    # largest member and defines the real size of INPUT (40 bytes on x64).
+    # With only KEYBDINPUT it came out to 32, cbSize didn't match, and
+    # SendInput silently returned 0 (ERROR_INVALID_PARAMETER): nothing was
+    # ever pasted.
     _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
 
 
@@ -106,19 +107,19 @@ def get_foreground_window() -> int:
 
 
 def _key_event(vk: int, key_up: bool) -> int:
-    """Devuelve cuantos eventos inserto SendInput: 1 si entro, 0 si Windows
-    lo rechazo (estructura INPUT mal dimensionada, o UIPI si la ventana
-    destino corre con mas privilegios que este proceso). Ese 0 es la unica
-    senal que da Windows de que el paste no va a llegar; antes se ignoraba y
-    quedaba como si hubiera pegado."""
+    """Returns how many events SendInput inserted: 1 if it went through, 0 if
+    Windows rejected it (malformed INPUT structure, or UIPI if the target
+    window runs with higher privileges than this process). That 0 is the
+    only signal Windows gives that the paste won't arrive; it used to be
+    ignored and treated as if it had pasted."""
     flags = KEYEVENTF_KEYUP if key_up else 0
     inp = INPUT(type=INPUT_KEYBOARD, union=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, 0)))
     return user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
 
 
 def _send_keys(events: list[tuple[int, bool]]) -> int:
-    """Manda varios eventos en UNA llamada a SendInput, para que ninguna tecla
-    fisica se cuele en el medio de la combinacion. Devuelve cuantos entraron."""
+    """Sends several events in ONE call to SendInput, so no physical key
+    sneaks in the middle of the combo. Returns how many went through."""
     array_type = INPUT * len(events)
     inputs = array_type()
     for i, (vk, key_up) in enumerate(events):
@@ -128,7 +129,7 @@ def _send_keys(events: list[tuple[int, bool]]) -> int:
 
 
 def _send_ctrl_v() -> int:
-    """Devuelve cuantos de los 4 eventos de teclado entraron (esperado: 4)."""
+    """Returns how many of the 4 keyboard events went through (expected: 4)."""
     return _send_keys([(VK_CONTROL, False), (VK_V, False), (VK_V, True), (VK_CONTROL, True)])
 
 
@@ -137,12 +138,12 @@ def _is_key_down(vk: int) -> bool:
 
 
 def _wait_modifiers_released(timeout_s: float = 1.0):
-    """El hotkey es Ctrl+Shift+Espacio. Si el usuario corta la grabacion con
-    una segunda pulsacion, el paste sale ~200ms despues y Shift suele seguir
-    fisicamente apretado: la app recibe Ctrl+Shift+V, que en muchas apps no
-    es "pegar" (VS Code abre el preview de Markdown, por ejemplo). Se espera
-    a que suelte Shift/Alt/Win; si no los suelta, se mandan key-up sinteticos
-    para que Windows los considere sueltos durante la combinacion."""
+    """The hotkey is Ctrl+Shift+Space. If the user cuts the recording short
+    with a second press, the paste fires ~200ms later and Shift is often
+    still physically held down: the app receives Ctrl+Shift+V, which in many
+    apps is not "paste" (VS Code opens the Markdown preview, for instance).
+    This waits for Shift/Alt/Win to be released; if they aren't, it sends
+    synthetic key-ups so Windows treats them as released during the combo."""
     stray = (VK_SHIFT, VK_MENU, VK_LWIN)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -176,13 +177,13 @@ def _describe_window(hwnd: int) -> str:
             if advapi32.GetTokenInformation(
                 token, TokenElevation, ctypes.byref(elevation), ctypes.sizeof(elevation), ctypes.byref(returned)
             ):
-                elevated = "si" if elevation.value else "no"
+                elevated = "yes" if elevation.value else "no"
             kernel32.CloseHandle(token)
         elif ctypes.get_last_error() == ERROR_ACCESS_DENIED:
-            elevated = "si (acceso denegado al token: corre con mas privilegios que este daemon)"
+            elevated = "yes (token access denied: runs with higher privileges than this daemon)"
         kernel32.CloseHandle(process)
 
-    return f"hwnd={hwnd} titulo={title!r} exe={exe} elevado={elevated}"
+    return f"hwnd={hwnd} title={title!r} exe={exe} elevated={elevated}"
 
 
 def _self_is_admin() -> bool:
@@ -190,11 +191,10 @@ def _self_is_admin() -> bool:
 
 
 def _open_clipboard(retries: int = 10, delay_s: float = 0.02) -> bool:
-    """OpenClipboard falla si otro proceso lo tiene abierto (historial de
-    portapapeles, un clipboard manager, etc.). Es tipicamente una fraccion
-    de segundo, asi que reintentar unas pocas veces alcanza; sin retry esto
-    fallaba en silencio y el texto dictado no llegaba a ningun lado, sin
-    ningun error en consola."""
+    """OpenClipboard fails if another process has it open (clipboard history,
+    a clipboard manager, etc.). It's typically a fraction of a second, so a
+    few retries is enough; without retrying this used to fail silently and
+    the dictated text would go nowhere, with no error on the console."""
     for _ in range(retries):
         if user32.OpenClipboard(0):
             return True
@@ -203,9 +203,9 @@ def _open_clipboard(retries: int = 10, delay_s: float = 0.02) -> bool:
 
 
 def _get_clipboard_text() -> str | None:
-    """Lee CF_UNICODETEXT del portapapeles, o None si no hay texto (u otro formato)."""
+    """Reads CF_UNICODETEXT from the clipboard, or None if there's no text (or a different format)."""
     if not _open_clipboard():
-        print("[portapapeles] OpenClipboard fallo al leer")
+        print("[clipboard] OpenClipboard failed while reading")
         return None
     try:
         if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
@@ -232,7 +232,7 @@ def _set_clipboard_text(text: str) -> bool:
     kernel32.GlobalUnlock(handle)
 
     if not _open_clipboard():
-        print("[portapapeles] OpenClipboard fallo al escribir, texto perdido")
+        print("[clipboard] OpenClipboard failed while writing, text lost")
         return False
     user32.EmptyClipboard()
     user32.SetClipboardData(CF_UNICODETEXT, handle)
@@ -241,22 +241,22 @@ def _set_clipboard_text(text: str) -> bool:
 
 
 def copy_to_clipboard(text: str):
-    """Deja el texto en el portapapeles sin pegarlo (fallback si cambio el foco)."""
+    """Leaves the text on the clipboard without pasting it (fallback if focus changed)."""
     _set_clipboard_text(text)
 
 
 def paste_text_if_focus_unchanged(text: str, expected_hwnd: int) -> bool:
-    """Pega `text` solo si la ventana enfocada al empezar a grabar sigue siendo
-    la misma ahora. `text` queda en el portapapeles en cualquier caso.
+    """Pastes `text` only if the window focused when recording started is
+    still the current one. `text` is left on the clipboard either way.
 
-    Devuelve True si pego, False si el foco cambio y solo quedo en el
-    portapapeles.
+    Returns True if it pasted, False if focus changed and it was only left
+    on the clipboard.
     """
     _set_clipboard_text(text)
 
     current = get_foreground_window()
     if current != expected_hwnd:
-        print(f"[diag] foco cambio: esperado {_describe_window(expected_hwnd)} / actual {_describe_window(current)}")
+        print(f"[diag] focus changed: expected {_describe_window(expected_hwnd)} / current {_describe_window(current)}")
         return False
 
     _wait_modifiers_released()
@@ -268,10 +268,10 @@ def paste_text_if_focus_unchanged(text: str, expected_hwnd: int) -> bool:
     sent = _send_ctrl_v()
     time.sleep(PASTE_DELAY_AFTER_S)
     print(
-        f"[diag] destino {_describe_window(expected_hwnd)} | daemon_admin={_self_is_admin()} "
-        f"| modificadores al pegar: {mods} | SendInput acepto {sent}/4 eventos"
+        f"[diag] target {_describe_window(expected_hwnd)} | daemon_admin={_self_is_admin()} "
+        f"| modifiers at paste: {mods} | SendInput accepted {sent}/4 events"
     )
     if sent < 4:
-        print(f"[diag] SendInput rechazo eventos (GetLastError={ctypes.get_last_error()})")
+        print(f"[diag] SendInput rejected events (GetLastError={ctypes.get_last_error()})")
 
     return sent == 4

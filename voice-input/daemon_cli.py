@@ -1,19 +1,19 @@
-"""Daemon de dictado: hotkey -> graba (con overlay) -> transcribe -> pega.
+"""Dictation daemon: hotkey -> records (with overlay) -> transcribes -> pastes.
 
-Un toque del acorde (por defecto Alt izquierdo + Ctrl derecho) arranca a
-grabar. Corta solo cuando hay silencio sostenido (configurable) o cuando se
-vuelve a tocar el acorde (toggle, no hay que mantener apretado). Mientras
-graba se ve la pildora flotante (overlay.py); su tuerca abre los ajustes.
-Esc durante la grabacion: cancela y descarta.
+A single tap of the chord (left Alt + right Ctrl by default) starts
+recording. It cuts either on sustained silence (configurable) or when the
+chord is tapped again (toggle, no need to hold it down). While recording,
+the floating pill (overlay.py) is shown; its gear opens settings.
+Esc during recording: cancels and discards.
 
-Modos de arranque:
-  daemon_cli.py          manual (la "app"): queda hasta que se apague.
-  daemon_cli.py --auto   lo lanza el hook SessionStart del plugin; se cierra
-                         solo cuando no queda ningun Claude Code abierto.
+Start modes:
+  daemon_cli.py          manual (the "app"): stays until turned off.
+  daemon_cli.py --auto   launched by the plugin's SessionStart hook; closes
+                         on its own once no Claude Code window is left.
 
-Hilos: el principal corre el loop de Qt (overlay, bandeja); el hotkey hace
-polling en su propio hilo; cada grabacion corre en un hilo de trabajo. Todo
-lo que toca la GUI pasa por senales Qt (thread-safe).
+Threads: the main thread runs the Qt loop (overlay, tray); the hotkey polls
+on its own thread; each recording runs on a worker thread. Everything that
+touches the GUI goes through Qt signals (thread-safe).
 """
 
 import argparse
@@ -25,13 +25,14 @@ import threading
 import time
 from pathlib import Path
 
-LOG_PATH = Path(os.environ.get("TEMP", ".")) / "claudetalk-dictado.log"
+LOG_PATH = Path(os.environ.get("TEMP", ".")) / "claudetalk-dictation.log"
 
 
 def _setup_console(log_to_file: bool):
-    """Sin consola (pythonw) o con --log: todo va a un archivo en %TEMP%.
-    Con consola: se pasa a UTF-8 (arranca en cp1252 y un titulo de ventana
-    con emoji o el texto dictado con tildes rompia el print)."""
+    """No console (pythonw) or with --log: everything goes to a file in
+    %TEMP%. With a console: switch to UTF-8 (it starts in cp1252 and a
+    window title with an emoji, or dictated text with accents, would break
+    print)."""
     if sys.stdout is None or log_to_file:
         stream = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
         sys.stdout = stream
@@ -41,20 +42,20 @@ def _setup_console(log_to_file: bool):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
-parser = argparse.ArgumentParser(description="claudeTalk - dictado por voz para Claude Code")
-parser.add_argument("--auto", action="store_true", help="lanzado por Claude Code; se cierra cuando no queda ninguno abierto")
-parser.add_argument("--log", action="store_true", help="escribir la salida en %TEMP%\\claudetalk-dictado.log")
+parser = argparse.ArgumentParser(description="claudeTalk - voice dictation for Claude Code")
+parser.add_argument("--auto", action="store_true", help="launched by Claude Code; closes once none are left open")
+parser.add_argument("--log", action="store_true", help="write output to %TEMP%\\claudetalk-dictation.log")
 args = parser.parse_args()
 _setup_console(args.log)
 
-# Una sola instancia: si hubiera dos, las dos reaccionarian al mismo acorde.
+# Single instance: if there were two, both would react to the same chord.
 ERROR_ALREADY_EXISTS = 183
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _kernel32.CreateMutexW.restype = ctypes.c_void_p
 _kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
-_instance_mutex = _kernel32.CreateMutexW(None, False, "Local\\claudeTalk-dictado")
+_instance_mutex = _kernel32.CreateMutexW(None, False, "Local\\claudeTalk-dictation")
 if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
-    print("[info] ya hay una instancia del dictado corriendo; esta se cierra")
+    print("[info] another dictation instance is already running; this one exits")
     sys.exit(0)
 
 from PySide6.QtCore import QTimer
@@ -69,10 +70,16 @@ import overlay
 import sounds
 from stt import ResidentTranscriber
 
-INITIAL_PROMPT = (
-    "Dictado en espanol para Claude Code: commit, repositorio, hook, pull request, "
-    "branch, terminal, script, Elementor, Rails, TypeScript, Docker, WordPress."
-)
+INITIAL_PROMPTS = {
+    "es": (
+        "Dictado en espanol para Claude Code: commit, repositorio, hook, pull request, "
+        "branch, terminal, script, Elementor, Rails, TypeScript, Docker, WordPress."
+    ),
+    "en": (
+        "Dictation in English for Claude Code: commit, repository, hook, pull request, "
+        "branch, terminal, script, TypeScript, Docker, WordPress."
+    ),
+}
 CLAUDE_CHECK_S = 5
 
 config = cfg.Config()
@@ -83,8 +90,8 @@ force_stop = threading.Event()
 cancel_flag = threading.Event()
 
 transcriber = ResidentTranscriber(
-    initial_prompt=INITIAL_PROMPT,
-    on_state_change=lambda s: print(f"[modelo] {s}"),
+    initial_prompt=INITIAL_PROMPTS["es"],
+    on_state_change=lambda s: print(f"[model] {s}"),
 )
 threading.Thread(target=transcriber.warm_up, daemon=True).start()
 
@@ -92,10 +99,10 @@ app, bridge = overlay.create_app_and_overlay(config)
 
 
 def _should_cancel():
-    """Polling desde audio.record_until_silence (cada BLOCK_MS).
+    """Polled from audio.record_until_silence (every BLOCK_MS).
 
-    Corte manual = segunda pulsacion del acorde (ver _on_press), que setea
-    force_stop. Esc se detecta aca con GetAsyncKeyState.
+    Manual cutoff = second chord press (see _on_press), which sets
+    force_stop. Esc is detected here with GetAsyncKeyState.
     """
     if force_stop.is_set() or cancel_flag.is_set():
         return True
@@ -116,7 +123,7 @@ def _worker():
     bridge.recording_started.emit()
     if config.get("sound"):
         sounds.chime_start()
-    print("[grabando] habla ahora...")
+    print("[recording] speak now...")
     try:
         pcm = audio.record_until_silence(
             should_cancel=_should_cancel,
@@ -128,27 +135,28 @@ def _worker():
     bridge.recording_stopped.emit()
 
     if cancel_flag.is_set() or pcm is None or len(pcm) == 0:
-        print("[cancelado] descartado")
+        print("[cancelled] discarded")
         with state_lock:
             state = "idle"
         cancel_flag.clear()
         force_stop.clear()
         return
 
-    print(f"[transcribiendo] {len(pcm) / audio.SAMPLE_RATE:.1f}s de audio")
+    print(f"[transcribing] {len(pcm) / audio.SAMPLE_RATE:.1f}s of audio")
     t0 = time.time()
+    transcriber._initial_prompt = INITIAL_PROMPTS.get(config.get("language"), "")
     text = transcriber.transcribe(pcm, language=_language())
     t1 = time.time()
-    print(f"[texto] {text!r} ({t1 - t0:.2f}s)")
+    print(f"[text] {text!r} ({t1 - t0:.2f}s)")
 
     if not text:
-        print("[vacio] nada que inyectar")
+        print("[empty] nothing to paste")
     else:
         ok = inject.paste_text_if_focus_unchanged(text, hwnd)
         if ok:
-            print("[inyectado]")
+            print("[pasted]")
         else:
-            print("[no pegado] texto queda en el portapapeles (ver [diag] arriba)")
+            print("[not pasted] text left in the clipboard (see [diag] above)")
 
     force_stop.clear()
     with state_lock:
@@ -156,9 +164,9 @@ def _worker():
 
 
 def _on_press():
-    """Toggle: primera pulsacion arranca, segunda corta manualmente
-    (mientras se sigue grabando/transcribiendo, cualquier pulsacion extra
-    solo confirma el corte, no pasa nada raro)."""
+    """Toggle: first press starts, second press cuts manually
+    (while it's still recording/transcribing, any extra press just
+    confirms the cutoff, nothing odd happens)."""
     global state
     with state_lock:
         if state == "idle":
@@ -176,7 +184,7 @@ def _on_settings_changed(key, value):
     if key == "hotkey":
         chord.set_keys(value)
         _refresh_tray_label()
-    print(f"[ajustes] {key} = {value!r}")
+    print(f"[settings] {key} = {value!r}")
 
 
 bridge.settings_changed.connect(_on_settings_changed)
@@ -185,7 +193,7 @@ bridge.capture_finished.connect(chord.resume)
 bridge.quit_requested.connect(app.quit)
 
 
-# --- bandeja ------------------------------------------------------------------
+# --- tray ------------------------------------------------------------------
 
 
 def _tray_icon() -> QIcon:
@@ -219,17 +227,17 @@ tray_label = QAction("", tray_menu)
 tray_label.setEnabled(False)
 tray_menu.addAction(tray_label)
 tray_menu.addSeparator()
-tray_settings = QAction("Ajustes", tray_menu)
+tray_settings = QAction("Settings", tray_menu)
 tray_settings.triggered.connect(bridge.panel.open_standalone)
 tray_menu.addAction(tray_settings)
-tray_quit = QAction("Apagar dictado", tray_menu)
+tray_quit = QAction("Turn off dictation", tray_menu)
 
 
 def _quit_from_tray():
     answer = QMessageBox.question(
         None,
         "claudeTalk",
-        "¿Apagar el dictado por completo?",
+        "Turn off dictation completely?",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
     )
@@ -244,15 +252,15 @@ tray.setContextMenu(tray_menu)
 
 def _refresh_tray_label():
     label = cfg.hotkey_label(config.get("hotkey"))
-    tray_label.setText(f"Dictado: {label}")
-    tray.setToolTip(f"claudeTalk dictado - {label}")
+    tray_label.setText(f"Dictation: {label}")
+    tray.setToolTip(f"claudeTalk dictation - {label}")
 
 
 _refresh_tray_label()
 tray.show()
 
 
-# --- modo automatico: vive mientras haya un Claude Code abierto ----------------
+# --- auto mode: lives while a Claude Code window is open ----------------
 
 
 def _claude_running() -> bool:
@@ -266,7 +274,7 @@ def _claude_running() -> bool:
 
 def _auto_watchdog():
     if not _claude_running():
-        print("[auto] no queda ningun Claude Code abierto; el dictado se cierra")
+        print("[auto] no Claude Code window left; dictation exits")
         app.quit()
 
 
@@ -277,12 +285,12 @@ if args.auto:
 
 app.aboutToQuit.connect(chord.stop)
 
-# El loop nativo de Qt no le da chance al interprete de Python de atender
-# senales (Ctrl+C) mientras no hay eventos de ventana; este timer inocuo lo
-# despierta cada 200ms para que SIGINT no quede colgado.
+# Qt's native loop doesn't give the Python interpreter a chance to handle
+# signals (Ctrl+C) while there are no window events; this harmless timer
+# wakes it up every 200ms so SIGINT doesn't get stuck.
 _signal_pump = QTimer()
 _signal_pump.timeout.connect(lambda: None)
 _signal_pump.start(200)
 
-print(f"Dictado listo: {cfg.hotkey_label(config.get('hotkey'))}. {'Modo auto (atado a Claude Code).' if args.auto else 'Ctrl+C o Apagar para salir.'}")
+print(f"Dictation ready: {cfg.hotkey_label(config.get('hotkey'))}. {'Auto mode (tied to Claude Code).' if args.auto else 'Ctrl+C or Turn off to exit.'}")
 sys.exit(app.exec())

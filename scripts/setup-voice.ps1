@@ -1,11 +1,11 @@
 # claudeTalk - setup-voice.ps1
-# Instala el dictado por voz: crea un entorno virtual de Python e instala las
-# dependencias (faster-whisper, PySide6, sounddevice, CUDA runtime). El modelo
-# Whisper (~1.6 GB) se descarga solo la primera vez que se usa.
+# Installs voice dictation: creates a Python virtual environment and installs
+# the dependencies (faster-whisper, PySide6, sounddevice, CUDA runtime). The
+# Whisper model (~1.6 GB) downloads on its own the first time it's used.
 #
-# Uso:  powershell -ExecutionPolicy Bypass -File scripts\setup-voice.ps1
-#       (opcional) -VenvPath <carpeta>   por defecto %LOCALAPPDATA%\claudeTalk\venv
-#       (opcional) -Shortcut             crea un acceso directo "claudeTalk Dictado" en el escritorio
+# Usage: powershell -ExecutionPolicy Bypass -File scripts\setup-voice.ps1
+#        (optional) -VenvPath <folder>   defaults to %LOCALAPPDATA%\claudeTalk\venv
+#        (optional) -Shortcut            creates a "claudeTalk Dictation" shortcut on the desktop
 
 param(
     [string]$VenvPath = (Join-Path $env:LOCALAPPDATA "claudeTalk\venv"),
@@ -29,41 +29,41 @@ function Find-Python {
 
 $python = Find-Python
 if (-not $python) {
-    Write-Host "No se encontro Python 3.11-3.13. Instalalo desde https://www.python.org/downloads/ (marca 'Add to PATH')." -ForegroundColor Red
+    Write-Host "Python 3.11-3.13 not found. Install it from https://www.python.org/downloads/ (check 'Add to PATH')." -ForegroundColor Red
     exit 1
 }
 
 $venvPython = Join-Path $VenvPath "Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
-    Write-Host "Creando entorno virtual en $VenvPath ..."
+    Write-Host "Creating virtual environment at $VenvPath ..."
     $parts = $python.Split(" ")
     & $parts[0] $parts[1..($parts.Length - 1)] -m venv $VenvPath
 }
 
-Write-Host "Instalando dependencias (puede tardar unos minutos) ..."
+Write-Host "Installing dependencies (this may take a few minutes) ..."
 & $venvPython -m pip install --upgrade pip --quiet
 & $venvPython -m pip install -r $requirements
 
-# El hook y el lanzador leen esta ruta: Claude Code corre el plugin desde su
-# cache, asi que el venv tiene que poder encontrarse fuera del plugin.
+# The hook and the launcher read this path: Claude Code runs the plugin from
+# its cache, so the venv needs to be findable outside the plugin.
 $stateDir = Join-Path $env:APPDATA "claudeTalk"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 Set-Content -Path (Join-Path $stateDir "venv-path.txt") -Value $VenvPath -Encoding utf8
 
 if ($Shortcut) {
     $desktop = [Environment]::GetFolderPath("Desktop")
-    $link = Join-Path $desktop "claudeTalk Dictado.lnk"
+    $link = Join-Path $desktop "claudeTalk Dictation.lnk"
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut($link)
     $lnk.TargetPath = "wscript.exe"
-    $lnk.Arguments = "`"" + (Join-Path $root "scripts\dictado.vbs") + "`""
+    $lnk.Arguments = "`"" + (Join-Path $root "scripts\dictation.vbs") + "`""
     $lnk.WorkingDirectory = Join-Path $root "voice-input"
     $lnk.IconLocation = (Join-Path $VenvPath "Scripts\pythonw.exe") + ",0"
-    $lnk.Description = "Dictado por voz de claudeTalk"
+    $lnk.Description = "claudeTalk voice dictation"
     $lnk.Save()
-    Write-Host "Acceso directo creado: $link"
+    Write-Host "Shortcut created: $link"
 }
 
 Write-Host ""
-Write-Host "Listo. Para arrancar el dictado a mano: wscript scripts\dictado.vbs" -ForegroundColor Green
-Write-Host "Con el plugin instalado en Claude Code arranca solo en cada sesion."
+Write-Host "Done. To start dictation by hand: wscript scripts\dictation.vbs" -ForegroundColor Green
+Write-Host "With the plugin installed in Claude Code, it starts on its own with every session."

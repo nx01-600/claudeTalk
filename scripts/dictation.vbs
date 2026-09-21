@@ -1,7 +1,7 @@
-' claudeTalk - dictado.vbs
-' Lanza el dictado por voz a mano (la "app"), sin ventana de consola.
-' Queda en la bandeja del sistema hasta que se apague desde la tuerca o la bandeja.
-' Busca el Python del entorno virtual en voice-input\.venv o en %LOCALAPPDATA%\claudeTalk\venv.
+' claudeTalk - dictation.vbs
+' Launches voice dictation by hand (the "app"), with no console window.
+' Sits in the system tray until turned off from the gear or the tray icon.
+' Looks for the Python of the virtual environment in voice-input\.venv or in %LOCALAPPDATA%\claudeTalk\venv.
 
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -19,7 +19,7 @@ If Not fso.FileExists(py) Then
     py = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\claudeTalk\venv\Scripts\pythonw.exe"
 End If
 If Not fso.FileExists(py) Then
-    MsgBox "Falta instalar el dictado. Ejecuta scripts\setup-voice.ps1 primero.", 48, "claudeTalk"
+    MsgBox "Dictation is not installed yet. Run scripts\setup-voice.ps1 first.", 48, "claudeTalk"
     WScript.Quit 1
 End If
 

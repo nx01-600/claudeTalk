@@ -19,15 +19,15 @@ from faster_whisper import WhisperModel
 SR = 16000
 DURATION = 6
 
-print(f"Grabando {DURATION}s... habla ahora en espanol.")
+print(f"Recording {DURATION}s... speak now in Spanish.")
 audio = sd.rec(int(DURATION * SR), samplerate=SR, channels=1, dtype="float32")
 sd.wait()
-print("Grabacion terminada. Cargando modelo...")
+print("Recording finished. Loading model...")
 
 t0 = time.time()
 model = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
 t1 = time.time()
-print(f"Modelo cargado en {t1-t0:.2f}s")
+print(f"Model loaded in {t1-t0:.2f}s")
 
 audio_flat = audio.flatten()
 t2 = time.time()
@@ -35,10 +35,10 @@ segments, info = model.transcribe(audio_flat, language="es", beam_size=1)
 text = "".join(s.text for s in segments)
 t3 = time.time()
 
-print(f"Transcripcion: {text!r}")
-print(f"Latencia transcripcion (beam_size=1): {t3-t2:.2f}s")
-print(f"Idioma detectado: {info.language} (prob {info.language_probability:.2f})")
+print(f"Transcription: {text!r}")
+print(f"Transcription latency (beam_size=1): {t3-t2:.2f}s")
+print(f"Detected language: {info.language} (prob {info.language_probability:.2f})")
 
 import subprocess
 print(subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv"], capture_output=True, text=True).stdout)
-print("PID actual:", os.getpid())
+print("Current PID:", os.getpid())

@@ -1,15 +1,14 @@
-"""Hotkey global por acorde de teclas (por defecto Alt izquierdo + Ctrl derecho).
+"""Global hotkey as a key chord (default: Left Alt + Right Ctrl).
 
-RegisterHotKey no sirve aca: sus flags MOD_ALT/MOD_CONTROL no distinguen
-lado, y no acepta un acorde hecho solo de modificadores. Un hook de bajo
-nivel (WH_KEYBOARD_LL, lo que usa la libreria `keyboard`) si lo permite,
-pero ya nos trajo storms de auto-repeat y desincronizaciones. En cambio se
-hace polling de GetAsyncKeyState cada 15ms desde un hilo propio: cuando
-todas las teclas del acorde pasan a estar apretadas se dispara una vez, y
-no se vuelve a disparar hasta que alguna se suelte. Sin hooks, sin
-repeticion, y el costo es despreciable.
+RegisterHotKey does not work here: its MOD_ALT/MOD_CONTROL flags cannot tell
+left from right, and it rejects a chord made only of modifiers. A low-level
+hook (WH_KEYBOARD_LL, what the `keyboard` library uses) allows it, but it
+already gave us auto-repeat storms and desyncs. Instead we poll
+GetAsyncKeyState every 15 ms from a dedicated thread: when every key of the
+chord becomes pressed it fires once, and it does not fire again until one
+of them is released. No hooks, no repeats, negligible cost.
 
-`pressed_keys()` sirve para capturar una combinacion nueva desde ajustes.
+`pressed_keys()` is used to capture a new combination from the settings panel.
 """
 
 import ctypes
@@ -21,9 +20,9 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 VK_ESCAPE = 0x1B
 POLL_S = 0.015
 
-# Codigos que no cuentan como "tecla" al capturar un acorde: botones del
-# mouse y los modificadores genericos (Windows los marca apretados a la vez
-# que la version izquierda/derecha, que es la que interesa).
+# Codes that do not count as a "key" while capturing a chord: mouse buttons
+# and the generic modifiers (Windows reports them pressed together with the
+# left/right variant, which is the one we care about).
 _CAPTURE_IGNORE = {0x01, 0x02, 0x04, 0x05, 0x06, 0x10, 0x11, 0x12, 0x90, 0x91}
 
 
@@ -32,15 +31,15 @@ def is_key_down(vk: int) -> bool:
 
 
 def pressed_keys() -> list[int]:
-    """Teclas fisicamente apretadas ahora mismo (sin mouse ni modificadores
-    genericos), ordenadas por codigo."""
+    """Keys physically held right now (no mouse buttons, no generic
+    modifiers), sorted by virtual-key code."""
     return [vk for vk in range(0x08, 0xFF) if vk not in _CAPTURE_IGNORE and is_key_down(vk)]
 
 
 class ChordHotkey:
-    """Llama a `on_press` (desde su propio hilo) cada vez que el acorde pasa
-    de suelto a apretado. `set_keys` cambia el acorde en caliente; `pause`
-    lo silencia mientras ajustes captura una combinacion nueva."""
+    """Calls `on_press` (from its own thread) every time the chord goes from
+    released to pressed. `set_keys` swaps the chord live; `pause` silences it
+    while the settings panel captures a new combination."""
 
     def __init__(self, on_press, keys, poll_s: float = POLL_S):
         self._on_press = on_press

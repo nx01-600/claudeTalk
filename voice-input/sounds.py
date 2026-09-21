@@ -1,6 +1,7 @@
-"""Sonidos suaves sintetizados: seno con armonico leve y envolvente de
-ataque/caida, reproducidos con sounddevice. Reemplaza a winsound.Beep, que
-es onda cuadrada a todo volumen (chillona) y bloquea el hilo mientras suena.
+"""Soft synthesized sounds: a sine wave with a slight harmonic and an
+attack/decay envelope, played back with sounddevice. Replaces winsound.Beep,
+which is a square wave at full volume (shrill) and blocks the thread while
+it plays.
 """
 
 import numpy as np
@@ -21,7 +22,7 @@ def _tone(freq: float, seconds: float, attack: float = 0.008, decay: float | Non
 
 
 def chime_start():
-    """Dos notas ascendentes cortas y suaves (E5 -> A5), solapadas."""
+    """Two short, soft ascending notes (E5 -> A5), overlapping."""
     first = _tone(659.25, 0.16)
     second = _tone(880.0, 0.28)
     overlap = int(SAMPLE_RATE * 0.06)

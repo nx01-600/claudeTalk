@@ -1,15 +1,15 @@
 # claudeTalk - voice-daemon-ensure.ps1
-# Hook 'SessionStart': deja corriendo el dictado por voz en modo --auto si no
-# esta ya corriendo. Idempotente y rapido: Claude Code no espera al daemon.
-# El daemon se cierra solo cuando no queda ningun Claude Code abierto.
+# 'SessionStart' hook: leaves voice dictation running in --auto mode if it
+# isn't already running. Idempotent and fast: Claude Code doesn't wait on the daemon.
+# The daemon shuts down on its own when no Claude Code window is left open.
 #
-# Busca el interprete en este orden:
-#   1. la ruta guardada por setup-voice.ps1 en %APPDATA%\claudeTalk\venv-path.txt
-#   2. <plugin>\voice-input\.venv        (instalacion dentro del repo)
-#   3. %LOCALAPPDATA%\claudeTalk\venv    (lo que crea setup-voice.ps1 por defecto)
-# Si no hay ninguno, el dictado no esta instalado y no hace nada.
-# Claude Code ejecuta el plugin desde su cache, no desde el repo: por eso el
-# venv se busca fuera del plugin y no solo al lado de este script.
+# Looks for the interpreter in this order:
+#   1. the path saved by setup-voice.ps1 in %APPDATA%\claudeTalk\venv-path.txt
+#   2. <plugin>\voice-input\.venv        (install inside the repo)
+#   3. %LOCALAPPDATA%\claudeTalk\venv    (what setup-voice.ps1 creates by default)
+# If none exist, dictation isn't installed and this does nothing.
+# Claude Code runs the plugin from its cache, not from the repo: that's why the
+# venv is looked up outside the plugin and not only next to this script.
 
 $ErrorActionPreference = "SilentlyContinue"
 $root = Split-Path -Parent $PSScriptRoot

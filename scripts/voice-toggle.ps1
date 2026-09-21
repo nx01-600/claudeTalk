@@ -1,6 +1,6 @@
 # claudeTalk - voice-toggle.ps1
-# Activa / desactiva / consulta el modo voz escribiendo .claude/claudetalk.local.md
-# en el workspace actual. Uso: voice-toggle.ps1 on|off|status
+# Turns voice mode on / off / queries it by writing .claude/claudetalk.local.md
+# in the current workspace. Usage: voice-toggle.ps1 on|off|status
 
 param([Parameter(Mandatory=$true)][ValidateSet("on","off","status")][string]$Action)
 
@@ -19,10 +19,10 @@ rate: "+0%"
 skip_code: true
 ---
 
-# claudeTalk - estado del modo voz
-Controla si claudeTalk lee en voz alta las respuestas de Claude en este workspace.
-Cambia 'enabled' con /voz-on y /voz-off. Puedes editar 'voice' y 'rate' a mano.
-Voces neutras LATAM: es-CO-SalomeNeural, es-CO-GonzaloNeural, es-MX-DaliaNeural, es-MX-JorgeNeural.
+# claudeTalk - voice mode status
+Controls whether claudeTalk reads Claude's responses out loud in this workspace.
+Change 'enabled' with /voice-on and /voice-off. You can edit 'voice' and 'rate' by hand.
+Neutral LATAM voices: es-CO-SalomeNeural, es-CO-GonzaloNeural, es-MX-DaliaNeural, es-MX-JorgeNeural.
 "@ | Set-Content -Path $file -Encoding UTF8
 }
 
@@ -32,7 +32,7 @@ switch ($Action) {
     "on" {
         $content = $content -replace '(?m)^(\s*enabled\s*:\s*).*$', '${1}true'
         $content | Set-Content $file -Encoding UTF8
-        Write-Output "claudeTalk: modo voz ON (Claude leera sus respuestas en voz alta)."
+        Write-Output "claudeTalk: voice mode ON (Claude will read its responses out loud)."
     }
     "off" {
         $content = $content -replace '(?m)^(\s*enabled\s*:\s*).*$', '${1}false'
@@ -42,12 +42,12 @@ switch ($Action) {
             $old = Get-Content $pidFile -ErrorAction SilentlyContinue
             if ($old) { Stop-Process -Id $old -Force -ErrorAction SilentlyContinue }
         }
-        Write-Output "claudeTalk: modo voz OFF (silencio)."
+        Write-Output "claudeTalk: voice mode OFF (silence)."
     }
     "status" {
         $en = [regex]::Match($content, '(?m)^\s*enabled\s*:\s*(\S+)').Groups[1].Value
         $vo = [regex]::Match($content, '(?m)^\s*voice\s*:\s*(\S+)').Groups[1].Value
         $estado = if ($en -eq 'true') { 'ON' } else { 'OFF' }
-        Write-Output ("claudeTalk: modo voz " + $estado + " | voz: " + $vo + " | archivo: " + $file)
+        Write-Output ("claudeTalk: voice mode " + $estado + " | voice: " + $vo + " | file: " + $file)
     }
 }

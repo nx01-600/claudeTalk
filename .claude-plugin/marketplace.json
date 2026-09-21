@@ -1,15 +1,15 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "claudeTalk",
-  "description": "Marketplace local de claudeTalk: le da voz a Claude Code.",
+  "description": "claudeTalk local marketplace: gives Claude Code a voice.",
   "owner": {
     "name": "Nicolas Carreno"
   },
   "plugins": [
     {
       "name": "claudeTalk",
-      "description": "Voz para Claude Code en Windows: lee las respuestas en voz alta (edge-tts) y dictado por voz local con Whisper, con overlay liquid glass.",
-      "version": "0.2.0",
+      "description": "Voice for Claude Code on Windows: reads responses out loud (edge-tts) and local voice dictation with Whisper, with a liquid glass overlay.",
+      "version": "0.2.1",
       "source": "./",
       "category": "productivity"
     }

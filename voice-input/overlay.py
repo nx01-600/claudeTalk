@@ -1,22 +1,23 @@
-"""Overlay flotante "liquid glass" que aparece mientras se graba, y el panel
-de ajustes que abre la tuerca.
+"""Floating "liquid glass" overlay shown while recording, plus the settings
+panel opened by the gear icon.
 
-Blanco y negro, sin robar foco (critico: si estas ventanas se activaran,
-GetForegroundWindow() dejaria de apuntar a la ventana real y el paste
-fallaria o el texto se pegaria en el overlay). Se logra con flags de Qt
-mas el estilo nativo WS_EX_NOACTIVATE, que ademas permite clickear la
-tuerca y el panel sin activar la ventana (mismo mecanismo que usa el
-teclado en pantalla de Windows). Por eso el panel no usa widgets de Qt con
-foco (QPushButton, QSlider): todo se pinta y se resuelve con el mouse.
+Black and white, never steals focus (critical: if these windows activated,
+GetForegroundWindow() would stop pointing at the real window and the paste
+would fail or the text would be pasted into the overlay). Achieved with Qt
+flags plus the native WS_EX_NOACTIVATE style, which also lets you click the
+gear and the panel without activating the window (the same mechanism Windows'
+on-screen keyboard uses). That's why the panel doesn't use focusable Qt
+widgets (QPushButton, QSlider): everything is painted and resolved with the
+mouse.
 
-El efecto de vidrio esmerilado NO usa el backdrop nativo de Windows
-(DWMWA_SYSTEMBACKDROP_TYPE / SetWindowCompositionAttribute): ambas APIs se
-probaron y solo devuelven un panel solido sin blur cuando la ventana tiene
-contenido pintado a mano por Qt en vez de ser una app WinUI3 pura, que es
-para lo que estan pensadas. En cambio, se captura la region de pantalla
-donde va a aparecer la ventana justo antes de mostrarla y se desenfoca a
-mano (downscale + upscale), en escala de grises. La intensidad ("Vidrio"
-en ajustes) mueve a la vez cuanto blur y cuanta transparencia.
+The frosted-glass effect does NOT use Windows' native backdrop
+(DWMWA_SYSTEMBACKDROP_TYPE / SetWindowCompositionAttribute): both APIs were
+tried and only return a solid panel with no blur when the window has content
+painted by hand with Qt instead of being a pure WinUI3 app, which is what
+they're designed for. Instead, the screen region where the window is about
+to appear is captured right before showing it and blurred by hand
+(downscale + upscale), in grayscale. The intensity ("Glass" in settings)
+controls both how much blur and how much transparency at once.
 """
 
 import ctypes
@@ -38,8 +39,8 @@ GWL_EXSTYLE = -20
 WINDOW_FLAGS = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus
 FONT_FAMILY = "Segoe UI"
 FRAME_MS = 16
-# Margen transparente alrededor de cada ventana para pintar la sombra
-# (desplazada hacia abajo y difusa) fuera del vidrio.
+# Transparent margin around each window to paint the shadow (offset
+# downward and blurred) outside the glass.
 INSET = 16
 SHADOW_OFFSET_Y = 4
 SHADOW_SPREAD = 12
@@ -55,12 +56,12 @@ def _lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
 
 
-# --- estilo compartido (tema + vidrio) ------------------------------------------
+# --- shared style (theme + glass) ------------------------------------------
 
 
 class Style:
-    """Lee tema/vidrio/posicion de la configuracion; overlay y panel pintan
-    siempre a partir de esto, asi un cambio en ajustes se ve al instante."""
+    """Reads theme/glass/position from the config; the overlay and panel
+    always paint from this, so a settings change is reflected instantly."""
 
     def __init__(self, config: cfg.Config):
         self.config = config
@@ -91,8 +92,8 @@ class Style:
 
 
 def _blurred_capture(widget: QWidget, style: Style) -> QPixmap:
-    """Foto de lo que hay detras del widget (todavia oculto), desenfocada con
-    downscale+upscale barato, en escala de grises."""
+    """Snapshot of what's behind the widget (still hidden), blurred with
+    cheap downscale+upscale, in grayscale."""
     geo = widget.geometry()
     screen = QApplication.screenAt(geo.center()) or QApplication.primaryScreen()
     pixmap = screen.grabWindow(0, geo.x(), geo.y(), geo.width(), geo.height())
@@ -113,8 +114,8 @@ def _blurred_capture(widget: QWidget, style: Style) -> QPixmap:
 
 
 def _paint_shadow(painter: QPainter, rect: QRectF, radius: float, style: Style):
-    """Sombra difusa con desplazamiento: capas concentricas cada vez mas
-    chicas y mas opacas. Barata y suficiente para separar el vidrio del fondo."""
+    """Soft offset shadow: concentric layers, each smaller and more opaque.
+    Cheap and good enough to separate the glass from the background."""
     painter.setPen(Qt.PenStyle.NoPen)
     layers = SHADOW_SPREAD
     peak = 34 if not style.dark else 60
@@ -126,8 +127,8 @@ def _paint_shadow(painter: QPainter, rect: QRectF, radius: float, style: Style):
 
 
 def _paint_glass(painter: QPainter, shape: QPainterPath, bg: QPixmap | None, rect: QRectF, radius: float, style: Style):
-    """Vidrio: sombra exterior + fondo desenfocado + velo uniforme del color
-    del tema + doble borde fino (claro afuera, oscuro adentro). Sin degradados."""
+    """Glass: outer shadow + blurred background + uniform theme-colored wash +
+    thin double border (light outside, dark inside). No gradients."""
     _paint_shadow(painter, rect, radius, style)
     painter.setClipPath(shape)
     if bg is not None:
@@ -145,7 +146,7 @@ def _paint_glass(painter: QPainter, shape: QPainterPath, bg: QPixmap | None, rec
 
 
 class _GlassWindow(QWidget):
-    """Base comun: sin marco, siempre arriba, nunca activa, fondo translucido."""
+    """Shared base: frameless, always on top, never activates, translucent background."""
 
     def __init__(self, style: Style):
         super().__init__(None, WINDOW_FLAGS)
@@ -164,7 +165,7 @@ class _GlassWindow(QWidget):
         self._bg_pixmap = _blurred_capture(self, self.style_)
 
 
-# --- pildora -----------------------------------------------------------------
+# --- pill -----------------------------------------------------------------
 
 WIDTH = 200
 HEIGHT = 56
@@ -176,7 +177,7 @@ BAR_WIDTH = 6
 BAR_GAP = 8
 BAR_MIN_HEIGHT = 6
 BAR_MAX_HEIGHT = 30
-BARS_AREA_WIDTH = WIDTH - 44  # deja lugar a la tuerca a la derecha
+BARS_AREA_WIDTH = WIDTH - 44  # leaves room for the gear on the right
 
 GEAR_CENTER_X = WIDTH - 24
 GEAR_OUTER_R = 9.6
@@ -191,8 +192,8 @@ HIDE_MS = 170
 
 
 def _gear_path() -> QPainterPath:
-    """Cuerpo circular + dientes redondeados (union booleana) menos el agujero
-    central: bordes suaves y forma de tuerca estandar, sin poligono a mano."""
+    """Circular body + rounded teeth (boolean union) minus the central hole:
+    smooth edges and a standard gear shape, no hand-drawn polygon."""
     body = QPainterPath()
     body.addEllipse(QPointF(0, 0), GEAR_BODY_R, GEAR_BODY_R)
     tooth_len = GEAR_OUTER_R - GEAR_BODY_R + 2.6
@@ -208,7 +209,7 @@ def _gear_path() -> QPainterPath:
 
 
 class RecordingOverlay(_GlassWindow):
-    """Pildora flotante con barras que reaccionan al volumen y la tuerca."""
+    """Floating pill with bars that react to volume, plus the gear icon."""
 
     def __init__(self, style: Style, panel: "SettingsPanel"):
         super().__init__(style)
@@ -239,7 +240,7 @@ class RecordingOverlay(_GlassWindow):
 
         self._place()
 
-    # --- posicion -----------------------------------------------------------
+    # --- position -----------------------------------------------------------
 
     def _place(self):
         screen = QApplication.primaryScreen().availableGeometry()
@@ -251,15 +252,15 @@ class RecordingOverlay(_GlassWindow):
         self.move(x, y)
 
     def _pill_top(self) -> float:
-        # abajo: entra deslizando hacia arriba; arriba: hacia abajo
+        # bottom: slides in upward; top: slides in downward
         return INSET + (self._slide if not self.style_.top else (1.0 - self._slide)) * SLIDE_PX
 
     def pill_rect_on_screen(self) -> QRectF:
-        """Rectangulo visible de la pildora (sin el margen de sombra), en
-        coordenadas de pantalla; lo usa el panel para ubicarse."""
+        """Visible rectangle of the pill (without the shadow margin), in
+        screen coordinates; used by the panel to position itself."""
         return QRectF(self.x() + INSET, self.y() + self._pill_top(), WIDTH, HEIGHT)
 
-    # --- entrada / salida ---------------------------------------------------
+    # --- entry / exit ---------------------------------------------------
 
     def fade_in(self):
         self._closing = False
@@ -284,7 +285,7 @@ class RecordingOverlay(_GlassWindow):
         if not self.isVisible():
             return
         if self._panel.isVisible():
-            # el usuario esta en ajustes: la pildora se queda hasta que cierre el panel
+            # the user is in settings: the pill stays until the panel closes
             self._hide_pending = True
             return
         self._closing = True
@@ -312,16 +313,16 @@ class RecordingOverlay(_GlassWindow):
             self.fade_out()
 
     def restyle(self):
-        """Tras un cambio de tema/vidrio/posicion en ajustes."""
+        """After a theme/glass/position change in settings."""
         if self.isVisible():
             self._place()
             self.refresh_background()
             self.update()
 
-    # --- estado animado -----------------------------------------------------
+    # --- animated state -----------------------------------------------------
 
     def set_level(self, normalized: float):
-        """normalized en [0, 1]. Desplaza las barras como un ecualizador simple."""
+        """normalized in [0, 1]. Shifts the bars like a simple equalizer."""
         normalized = max(0.0, min(1.0, normalized))
         self._levels_target = self._levels_target[1:] + [normalized]
 
@@ -333,7 +334,7 @@ class RecordingOverlay(_GlassWindow):
         self._gear_angle = _lerp(self._gear_angle, self._gear_angle_target, 0.18)
         self.update()
 
-    # --- mouse (tuerca) -----------------------------------------------------
+    # --- mouse (gear) -----------------------------------------------------
 
     def _gear_center(self) -> QPointF:
         return QPointF(INSET + GEAR_CENTER_X, self._pill_top() + HEIGHT / 2)
@@ -363,7 +364,7 @@ class RecordingOverlay(_GlassWindow):
                 self._panel.open_near(self)
                 self._gear_angle_target = 120.0
 
-    # --- pintura ------------------------------------------------------------
+    # --- painting ------------------------------------------------------------
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -408,7 +409,7 @@ class RecordingOverlay(_GlassWindow):
         painter.restore()
 
 
-# --- panel de ajustes ----------------------------------------------------------
+# --- settings panel ----------------------------------------------------------
 
 PANEL_W = 328
 PANEL_RADIUS = 20
@@ -435,9 +436,10 @@ def _chord_sorted(vks) -> list[int]:
 
 
 class SettingsPanel(_GlassWindow):
-    """Ajustes en grupos (Activacion / Apariencia / Transcripcion) con
-    controles pintados: switch, segmentado, slider, captura de teclas. Apagar
-    pide confirmacion inline (sin modal) antes de emitir quit_requested."""
+    """Settings in groups (Activation / Appearance / Transcription) with
+    hand-painted controls: switch, segmented control, slider, key capture.
+    Turning off asks for inline confirmation (no modal) before emitting
+    quit_requested."""
 
     settings_changed = Signal(str, object)
     capture_started = Signal()
@@ -476,28 +478,28 @@ class SettingsPanel(_GlassWindow):
         self._rows = self._build_rows()
         self.resize(PANEL_W + 2 * INSET, self._content_height() + 2 * INSET)
 
-    # --- modelo de filas ----------------------------------------------------
+    # --- row model ----------------------------------------------------
 
     def _build_rows(self):
         rows = [
-            ("group", "Activación", None, None),
-            ("hotkey", "Teclas", "hotkey", None),
-            ("segment", "Corte por silencio", "silence_ms", [(1000, "1 s"), (2000, "2 s"), (3000, "3 s")]),
-            ("toggle", "Sonido al iniciar", "sound", None),
-            ("group", "Apariencia", None, None),
-            ("segment", "Tema", "theme", [("light", "Claro"), ("dark", "Oscuro")]),
-            ("slider", "Vidrio", "glass", None),
-            ("segment", "Posición", "position", [("bottom", "Abajo"), ("top", "Arriba")]),
-            ("group", "Transcripción", None, None),
-            ("segment", "Idioma", "language", [("es", "Español"), ("en", "English"), ("auto", "Auto")]),
+            ("group", "Activation", None, None),
+            ("hotkey", "Keys", "hotkey", None),
+            ("segment", "Silence cutoff", "silence_ms", [(1000, "1 s"), (2000, "2 s"), (3000, "3 s")]),
+            ("toggle", "Sound on start", "sound", None),
+            ("group", "Appearance", None, None),
+            ("segment", "Theme", "theme", [("light", "Light"), ("dark", "Dark")]),
+            ("slider", "Glass", "glass", None),
+            ("segment", "Position", "position", [("bottom", "Bottom"), ("top", "Top")]),
+            ("group", "Transcription", None, None),
+            ("segment", "Language", "language", [("es", "Spanish"), ("en", "English"), ("auto", "Auto")]),
             ("group", "", None, None),
-            ("danger", "Apagar dictado", None, None),
+            ("danger", "Turn off dictation", None, None),
         ]
         return rows
 
     def _row_rects(self):
-        """Devuelve [(index, QRectF, group_rect_or_None)] para filas visibles;
-        los grupos se dibujan como contenedores redondeados."""
+        """Returns [(index, QRectF, group_rect_or_None)] for visible rows;
+        groups are drawn as rounded containers."""
         y = PAD + TITLE_H
         out = []
         group_start = None
@@ -525,7 +527,7 @@ class SettingsPanel(_GlassWindow):
                 return item[2]
         return None
 
-    # --- abrir / cerrar -----------------------------------------------------
+    # --- open / close -----------------------------------------------------
 
     def open_near(self, pill: "RecordingOverlay"):
         screen = QApplication.primaryScreen().availableGeometry()
@@ -594,7 +596,7 @@ class SettingsPanel(_GlassWindow):
             self._toggle_t[key] = _lerp(self._toggle_t.get(key, target), target, 0.3)
         self.update()
 
-    # --- captura de teclas --------------------------------------------------
+    # --- key capture --------------------------------------------------
 
     def _begin_capture(self):
         self._capturing = True
@@ -632,7 +634,7 @@ class SettingsPanel(_GlassWindow):
         if time.monotonic() > self._capture_deadline:
             self._end_capture(commit=False)
 
-    # --- geometria de controles ---------------------------------------------
+    # --- control geometry ---------------------------------------------
 
     def _control_rect(self, index: int, rect: QRectF) -> QRectF:
         kind = self._rows[index][0]
@@ -658,7 +660,7 @@ class SettingsPanel(_GlassWindow):
 
     def _hotkey_text(self) -> str:
         if self._capturing:
-            return cfg.hotkey_label(self._capture_live) if self._capture_live else "Presioná las teclas"
+            return cfg.hotkey_label(self._capture_live) if self._capture_live else "Press the keys"
         return cfg.hotkey_label(self.config.get("hotkey"))
 
     def _hit(self, pos):
@@ -772,7 +774,7 @@ class SettingsPanel(_GlassWindow):
             self.refresh_background()
         self.update()
 
-    # --- pintura ------------------------------------------------------------
+    # --- painting ------------------------------------------------------------
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -782,15 +784,15 @@ class SettingsPanel(_GlassWindow):
         shape = QPainterPath()
         shape.addRoundedRect(rect, PANEL_RADIUS, PANEL_RADIUS)
         _paint_glass(painter, shape, self._bg_pixmap, rect, PANEL_RADIUS, st)
-        # de aca en adelante todo se dibuja relativo al vidrio, no a la ventana
+        # from here on everything is drawn relative to the glass, not the window
         painter.translate(INSET, INSET)
 
-        # titulo + cerrar
+        # title + close
         title_font = QFont(FONT_FAMILY, 11)
         title_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(title_font)
         painter.setPen(st.fg(225))
-        painter.drawText(QRectF(PAD + 4, PAD, 200, TITLE_H - 8), Qt.AlignmentFlag.AlignVCenter, "Dictado")
+        painter.drawText(QRectF(PAD + 4, PAD, 200, TITLE_H - 8), Qt.AlignmentFlag.AlignVCenter, "Dictation")
         self._paint_close(painter)
 
         items, _ = self._row_rects()
@@ -815,7 +817,7 @@ class SettingsPanel(_GlassWindow):
                     box.addRoundedRect(QRectF(PAD, group_top, PANEL_W - 2 * PAD, y - group_top), GROUP_RADIUS, GROUP_RADIUS)
                     painter.fillPath(box, st.fg(14 if not st.dark else 18))
                 group_top = None
-        # filas encima de sus contenedores
+        # rows on top of their containers
         previous_in_group = False
         for item in items:
             if item[0] == "group_title":
@@ -951,14 +953,14 @@ class SettingsPanel(_GlassWindow):
                 hl.addRoundedRect(rect.adjusted(4, 4, -4, -4), 9, 9)
                 painter.fillPath(hl, st.fg(14))
             painter.setPen(st.fg(225))
-            painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignmentFlag.AlignVCenter, "Apagar dictado")
+            painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignmentFlag.AlignVCenter, "Turn off dictation")
             return
         confirm, cancel = self._confirm_rects(rect)
         painter.setPen(st.fg(200))
         painter.drawText(
             QRectF(rect.left() + 14, rect.top(), cancel.left() - rect.left() - 22, rect.height()),
             Qt.AlignmentFlag.AlignVCenter,
-            "¿Apagar?",
+            "Turn off?",
         )
         hover_part = self._hover[1] if self._hover else None
         painter.setFont(QFont(FONT_FAMILY, 9))
@@ -966,20 +968,20 @@ class SettingsPanel(_GlassWindow):
         cancel_path.addRoundedRect(cancel, 14, 14)
         painter.fillPath(cancel_path, st.fg(34 if hover_part == "cancel" else 22))
         painter.setPen(st.fg(220))
-        painter.drawText(cancel, Qt.AlignmentFlag.AlignCenter, "Cancelar")
+        painter.drawText(cancel, Qt.AlignmentFlag.AlignCenter, "Cancel")
         confirm_path = QPainterPath()
         confirm_path.addRoundedRect(confirm, 14, 14)
         painter.fillPath(confirm_path, st.fg(255 if hover_part == "confirm" else 225))
         painter.setPen(st.surface(255))
-        painter.drawText(confirm, Qt.AlignmentFlag.AlignCenter, "Apagar")
+        painter.drawText(confirm, Qt.AlignmentFlag.AlignCenter, "Turn off")
 
 
-# --- puente con el daemon ------------------------------------------------------
+# --- bridge with the daemon ------------------------------------------------------
 
 
 class OverlayBridge(QObject):
-    """Puente thread-safe: los hilos de trabajo emiten senales, el overlay
-    vive y se pinta en el hilo de la GUI (el que corre QApplication.exec())."""
+    """Thread-safe bridge: worker threads emit signals, the overlay lives
+    and paints on the GUI thread (the one running QApplication.exec())."""
 
     recording_started = Signal()
     recording_stopped = Signal()

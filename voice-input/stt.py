@@ -1,4 +1,4 @@
-"""Modelo Whisper residente en GPU, con descarga automatica por inactividad."""
+"""Whisper model resident on GPU, with automatic unload on idle."""
 
 import os
 import sys
@@ -48,20 +48,20 @@ class ResidentTranscriber:
                 try:
                     self._model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE_TYPE)
                 except (RuntimeError, ValueError, OSError) as exc:
-                    # Sin GPU NVIDIA/CUDA utilizable: CPU con int8. Mas lento (segundos
-                    # por frase en vez de decimas), pero funciona en cualquier maquina.
-                    self._notify(f"cuda no disponible ({exc.__class__.__name__}), usando cpu")
+                    # No usable NVIDIA/CUDA GPU: fall back to CPU with int8. Slower
+                    # (seconds per sentence instead of tenths), but works on any machine.
+                    self._notify(f"cuda unavailable ({exc.__class__.__name__}), using cpu")
                     self._model = WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
                 self._notify("loaded")
             self._last_use = time.monotonic()
 
     def warm_up(self):
-        """Carga el modelo por adelantado: la primera transcripcion tarda
-        segundos si hay que subirlo a VRAM en ese momento."""
+        """Loads the model ahead of time: the first transcription takes
+        seconds if it has to be uploaded to VRAM at that moment."""
         self._ensure_loaded()
 
     def transcribe(self, audio, language: str | None = "es") -> str:
-        """language=None deja que Whisper detecte el idioma."""
+        """language=None lets Whisper detect the language."""
         self._ensure_loaded()
         segments, _info = self._model.transcribe(
             audio,

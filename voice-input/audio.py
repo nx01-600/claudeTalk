@@ -1,4 +1,4 @@
-"""Captura de audio con corte automático por silencio."""
+"""Audio capture with automatic cutoff on silence."""
 
 import time
 
@@ -12,7 +12,7 @@ CALIBRATION_MS = 300
 SILENCE_HOLD_MS = 2000
 MIN_SPEECH_MS = 400
 MAX_RECORDING_S = 60
-SILENCE_MARGIN = 2.5  # multiplo del piso de ruido para considerar "hay voz"
+SILENCE_MARGIN = 2.5  # multiple of the noise floor to consider "there is speech"
 
 
 class RecordingCancelled(Exception):
@@ -24,13 +24,13 @@ def _rms(block: np.ndarray) -> float:
 
 
 def record_until_silence(should_cancel=None, on_level=None, silence_hold_ms: int = SILENCE_HOLD_MS) -> np.ndarray:
-    """Graba desde el microfono default hasta detectar silencio sostenido.
+    """Records from the default microphone until sustained silence is detected.
 
-    should_cancel: callable opcional que devuelve True para cortar la grabacion
-    (usada por la segunda pulsacion del hotkey o Esc).
-    on_level: callable opcional que recibe un float en [0, 1] por cada bloque,
-    para alimentar un indicador visual del volumen (ver overlay.py).
-    silence_hold_ms: silencio sostenido que corta la grabacion (configurable).
+    should_cancel: optional callable that returns True to cut the recording
+    short (used by the second hotkey press or Esc).
+    on_level: optional callable that receives a float in [0, 1] for each
+    block, to feed a visual volume indicator (see overlay.py).
+    silence_hold_ms: sustained silence that cuts the recording short (configurable).
     """
     block_size = int(SAMPLE_RATE * BLOCK_MS / 1000)
     blocks: list[np.ndarray] = []

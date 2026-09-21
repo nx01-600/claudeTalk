@@ -1,166 +1,165 @@
 # claudeTalk
 
-Voz para **Claude Code** en Windows, en dos direcciones:
+Voice for **Claude Code** on Windows, in both directions:
 
-- **Claude habla**: lee sus respuestas en voz alta (voces neuronales de Microsoft vía `edge-tts`).
-- **Vos dictás**: apretás un acorde de teclas, hablás, y el texto aparece transcripto en la ventana que tenías enfocada. Todo local: Whisper corre en tu GPU (o CPU), el audio nunca sale de tu máquina.
+- **Claude speaks**: reads its responses out loud (Microsoft neural voices via `edge-tts`).
+- **You dictate**: press a key chord, talk, and the text appears transcribed in the window you had focused. All local: Whisper runs on your GPU (or CPU), the audio never leaves your machine.
 
-El dictado viene con un overlay flotante estilo *liquid glass* (blanco y negro, claro u oscuro) con barras que siguen tu voz, y un panel de ajustes desde la tuerca.
+Dictation comes with a floating *liquid glass* overlay (black and white, light or dark) with bars that follow your voice, and a settings panel from the gear icon.
 
-> Estado: funcional y en uso diario. Es la etapa 2 de un proyecto cuyo norte es una conversación en vivo con Claude, interrumpible, tipo llamada.
+> Status: functional and in daily use. This is stage 2 of a project whose north star is a live, interruptible conversation with Claude, like a call.
 
 ---
 
-## Qué hace
+## What it does
 
 | | |
 |---|---|
-| **Dictado por voz** | Un toque de `Alt izq + Ctrl der` (configurable) arranca a grabar. Corta solo tras 2 s de silencio, o con otro toque. `Esc` cancela. |
-| **Pegado inteligente** | El texto se pega en la ventana que tenía el foco al empezar a grabar; si cambiaste de ventana, no pega en cualquier lado. El texto **siempre** queda además en el portapapeles. |
-| **Overlay liquid glass** | Píldora flotante con vidrio esmerilado, barras de volumen en vivo y tuerca de ajustes. Nunca roba el foco. |
-| **Ajustes en vivo** | Teclas de activación (captura la combinación que apretes), corte por silencio, sonido, tema claro/oscuro, intensidad del vidrio, posición, idioma (español / inglés / auto). Apagar pide confirmación. |
-| **Ciclo de vida** | Con el plugin instalado, el dictado arranca solo al abrir Claude Code y se cierra solo cuando no queda ninguno abierto. También podés lanzarlo a mano como app (queda en la bandeja). |
-| **Claude habla (TTS)** | `/voz-on` y `/voz-off`. Lee la última respuesta, omite bloques de código, no bloquea la terminal. |
+| **Voice dictation** | A tap of `Left Alt + Right Ctrl` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
+| **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. The text **always** ends up on the clipboard too. |
+| **Liquid glass overlay** | Floating pill with frosted glass, live volume bars, and a settings gear. Never steals focus. |
+| **Live settings** | Activation keys (captures the chord you press), silence cutoff, sound, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
+| **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when no Claude Code window is left. You can also launch it by hand as an app (it sits in the tray). |
+| **Claude's voice (TTS)** | `/voice-on` and `/voice-off`. Reads the latest response, skips code blocks, doesn't block the terminal. |
 
-## Requisitos
+## Requirements
 
 - Windows 10/11.
 - [Claude Code](https://claude.com/claude-code).
-- Python 3.11 a 3.13 (para el dictado).
-- GPU NVIDIA con CUDA 12 para transcripción en décimas de segundo. Sin GPU funciona en CPU (varios segundos por frase).
-- Para la voz de Claude (TTS): `edge-tts` (`pip install edge-tts`, necesita internet) y `ffmpeg` (`winget install Gyan.FFmpeg`).
+- Python 3.11 to 3.13 (for dictation).
+- NVIDIA GPU with CUDA 12 for transcription in tenths of a second. Without a GPU it works on CPU (several seconds per sentence).
+- For Claude's voice (TTS): `edge-tts` (`pip install edge-tts`, needs internet) and `ffmpeg` (`winget install Gyan.FFmpeg`).
 
-## Instalación
+## Installation
 
-### 1. Plugin en Claude Code
+### 1. Plugin in Claude Code
 
 ```
 git clone https://github.com/nx01-600/claudeTalk.git
 ```
 
-Dentro de Claude Code:
+Inside Claude Code:
 
 ```
-/plugin marketplace add C:\ruta\a\claudeTalk
+/plugin marketplace add C:\path\to\claudeTalk
 /plugin install claudeTalk@claudeTalk
 ```
 
-### 2. Dictado por voz (una sola vez)
+### 2. Voice dictation (one time only)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\ruta\a\claudeTalk\scripts\setup-voice.ps1 -Shortcut
+powershell -ExecutionPolicy Bypass -File C:\path\to\claudeTalk\scripts\setup-voice.ps1 -Shortcut
 ```
 
-Crea un entorno virtual en `%LOCALAPPDATA%\claudeTalk\venv`, instala las dependencias (`faster-whisper`, `PySide6`, `sounddevice`, runtime CUDA) y, con `-Shortcut`, deja un acceso directo **claudeTalk Dictado** en el escritorio. El modelo Whisper `large-v3-turbo` (~1,6 GB) se descarga solo la primera vez que dictás.
+Creates a virtual environment at `%LOCALAPPDATA%\claudeTalk\venv`, installs the dependencies (`faster-whisper`, `PySide6`, `sounddevice`, CUDA runtime) and, with `-Shortcut`, leaves a **claudeTalk Dictation** shortcut on the desktop. The Whisper `large-v3-turbo` model (~1.6 GB) downloads on its own the first time you dictate.
 
-Listo. La próxima sesión de Claude Code ya arranca con el dictado activo.
+Done. The next Claude Code session already starts with dictation active.
 
-## Uso
+## Usage
 
-### Dictar
+### Dictate
 
-1. Enfocá la ventana donde querés el texto (la terminal de Claude Code, un editor, lo que sea).
-2. Tocá **Alt izquierdo + Ctrl derecho**. Suena una nota suave y aparece la píldora.
-3. Hablá. Al callarte 2 segundos (o al tocar el acorde de nuevo) transcribe y pega.
+1. Focus the window where you want the text (the Claude Code terminal, an editor, whatever).
+2. Tap **Left Alt + Right Ctrl**. A soft chime plays and the pill appears.
+3. Talk. Once you stop for 2 seconds (or tap the chord again) it transcribes and pastes.
 
-Si mientras tanto cambiaste de ventana, no pega nada: el texto te queda en el portapapeles para `Ctrl+V`.
+If you switched windows in the meantime, it pastes nothing: the text stays on the clipboard for `Ctrl+V`.
 
-### Ajustes
+### Settings
 
-Clic en la tuerca de la píldora (o clic derecho en el ícono de la bandeja → **Ajustes**).
+Click the gear on the pill (or right-click the tray icon → **Settings**).
 
-- **Teclas**: clic y apretá la combinación nueva; se guarda al soltar. `Esc` cancela.
-- **Corte por silencio**: 1, 2 o 3 s.
-- **Sonido al iniciar**: la nota al empezar a grabar.
-- **Tema** claro u oscuro, **Vidrio** (cuánto blur y transparencia), **Posición** abajo o arriba.
-- **Idioma**: español, inglés o detección automática.
-- **Apagar dictado**: cierra el daemon por completo, con confirmación.
+- **Dictation**
+- **Activation**: **Keys** — click and press the new combination; it saves on release, `Esc` cancels. **Silence cutoff** — 1, 2, or 3 s. **Sound on start** — the chime when recording begins.
+- **Appearance**: **Theme** — Light / Dark. **Glass** — how much blur and transparency. **Position** — Bottom / Top.
+- **Transcription**: **Language** — Spanish / English / Auto.
+- **Turn off dictation**: shuts the daemon down completely, asks for confirmation.
 
-Los ajustes viven en `%APPDATA%\claudeTalk\dictado.json` y se aplican al instante.
+Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly.
 
-### Arrancarlo y apagarlo
+### Starting and stopping
 
-- Arranca solo con cada sesión de Claude Code (hook `SessionStart`) y se cierra solo cuando cerrás el último Claude Code.
-- A mano: acceso directo **claudeTalk Dictado**, o `wscript scripts\dictado.vbs`, o `/dictado` dentro de Claude Code. Lanzado a mano, queda hasta que lo apagues.
-- Apagar: tuerca → **Apagar dictado**, o bandeja → **Apagar dictado**. Siempre pide confirmación.
+- It starts on its own with every Claude Code session (`SessionStart` hook) and shuts down on its own when you close the last Claude Code window.
+- By hand: the **claudeTalk Dictation** shortcut, or `wscript scripts\dictation.vbs`, or `/dictation` inside Claude Code. Launched by hand, it stays running until you turn it off.
+- Turning it off: gear → **Turn off dictation**, or tray → **Turn off dictation**. Always asks for confirmation.
 
-### Voz de Claude (TTS)
+### Claude's voice (TTS)
 
-- `/voz-on` activa, `/voz-off` desactiva y corta el audio, `/voz` muestra el estado.
-- Configuración por proyecto en `.claude/claudetalk.local.md`:
+- `/voice-on` turns it on, `/voice-off` turns it off and cuts the audio, `/voice` shows the status.
+- Per-project configuration in `.claude/claudetalk.local.md`:
 
 ```yaml
 ---
 enabled: true
-voice: es-CO-GonzaloNeural  # cualquier voz de `edge-tts --list-voices`
+voice: es-CO-GonzaloNeural  # any voice from `edge-tts --list-voices`
 rate: "+0%"
 skip_code: true
 ---
 ```
 
-## Cómo funciona
+## How it works
 
 ```
-acorde de teclas ──► grabación (16 kHz, corte por silencio) ──► faster-whisper (GPU)
-        │                       │                                       │
-        │                  overlay.py                                   ▼
-        │           píldora + barras de nivel               portapapeles + Ctrl+V simulado
-        │                                                   (solo si el foco no cambió)
-        └── hotkey.py: polling de GetAsyncKeyState cada 15 ms, sin hooks de teclado
+key chord ──► recording (16 kHz, silence cutoff) ──► faster-whisper (GPU)
+     │                       │                                 │
+     │                  overlay.py                             ▼
+     │            pill + level bars                 clipboard + simulated Ctrl+V
+     │                                               (only if focus didn't change)
+     └── hotkey.py: GetAsyncKeyState polling every 15 ms, no keyboard hooks
 ```
 
-Decisiones que vale la pena conocer (todas están explicadas en los docstrings):
+Decisions worth knowing (all explained in the docstrings):
 
-- **Hotkey sin hooks.** `RegisterHotKey` no distingue Alt izquierdo de derecho ni acepta acordes de solo modificadores; los hooks de bajo nivel (`keyboard`, `pynput`) traen tormentas de auto-repeat. Polling de `GetAsyncKeyState` resuelve ambas cosas con costo despreciable.
-- **Pegar, no teclear.** Escribir carácter por carácter con `SendInput` pierde tildes según la app y puede caer en la ventana equivocada a mitad de camino. Pegar por portapapeles es atómico y conserva el Unicode.
-- **Vidrio sin APIs frágiles.** El backdrop nativo de Windows 11 (Mica/Acrylic) devuelve un panel sólido para ventanas con contenido pintado a mano. El overlay captura lo que hay detrás, lo desenfoca y lo usa de fondo.
-- **Nunca roba el foco.** Overlay y panel usan `WS_EX_NOACTIVATE`; si se activaran, el pegado iría a parar al overlay.
-- **Modelo residente.** Whisper se precarga al arrancar y se descarga tras 30 min sin uso para liberar VRAM.
+- **Hotkey without hooks.** `RegisterHotKey` doesn't distinguish left Alt from right Alt and doesn't accept modifier-only chords; low-level hooks (`keyboard`, `pynput`) bring auto-repeat storms. Polling `GetAsyncKeyState` solves both problems at negligible cost.
+- **Paste, don't type.** Typing character by character with `SendInput` loses accented characters depending on the app and can land in the wrong window partway through. Pasting via the clipboard is atomic and preserves Unicode.
+- **Glass without fragile APIs.** Windows 11's native backdrop (Mica/Acrylic) returns a solid panel for windows with hand-painted content. The overlay captures what's behind it, blurs it, and uses it as the background.
+- **Never steals focus.** The overlay and panel use `WS_EX_NOACTIVATE`; if they were to activate, the paste would end up going to the overlay.
+- **Resident model.** Whisper preloads on startup and unloads after 30 minutes of no use to free VRAM.
 
-## Estructura
+## Structure
 
 ```
-.claude-plugin/     manifiesto del plugin y marketplace local
-commands/           /voz-on /voz-off /voz /dictado
+.claude-plugin/     plugin and local marketplace manifest
+commands/           /voice-on /voice-off /voice /dictation
 hooks/hooks.json    Stop → speak.ps1 (TTS)   SessionStart → voice-daemon-ensure.ps1
 scripts/
   speak.ps1               TTS: transcript → edge-tts → ffplay
-  voice-toggle.ps1        estado del modo voz
-  setup-voice.ps1         instala el dictado (venv + dependencias + acceso directo)
-  voice-daemon-ensure.ps1 lanza el daemon en modo --auto si no corre
-  dictado.vbs             lanzador manual sin consola
+  voice-toggle.ps1        voice mode status
+  setup-voice.ps1         installs dictation (venv + dependencies + shortcut)
+  voice-daemon-ensure.ps1 launches the daemon in --auto mode if not already running
+  dictation.vbs           manual launcher without a console window
 voice-input/
-  daemon_cli.py    orquestación, bandeja, modo --auto, única instancia
-  hotkey.py        acorde por polling, captura de teclas
-  audio.py         grabación con calibración de ruido y corte por silencio
-  stt.py           faster-whisper residente (GPU, fallback CPU)
-  inject.py        portapapeles + Ctrl+V, guardia de foco, diagnóstico
-  overlay.py       píldora, panel de ajustes, vidrio, animaciones
-  config.py        ajustes persistentes (%APPDATA%\claudeTalk\dictado.json)
-  sounds.py        nota de inicio sintetizada
-  test_*.py        diagnósticos manuales
+  daemon_cli.py    orchestration, tray, --auto mode, single instance
+  hotkey.py        chord via polling, key capture
+  audio.py         recording with noise calibration and silence cutoff
+  stt.py           resident faster-whisper (GPU, CPU fallback)
+  inject.py        clipboard + Ctrl+V, focus guard, diagnostics
+  overlay.py       pill, settings panel, glass, animations
+  config.py        persistent settings (%APPDATA%\claudeTalk\dictation.json)
+  sounds.py        synthesized start chime
+  test_*.py        manual diagnostics
 ```
 
-## Diagnóstico
+## Diagnostics
 
-- Log del dictado (cuando corre sin consola): `%TEMP%\claudetalk-dictado.log`. Corriéndolo a mano en una terminal (`python voice-input\daemon_cli.py`) ves lo mismo en vivo, incluida una línea `[diag]` por cada pegado con la ventana destino, si corre elevada y cuántos eventos aceptó `SendInput`.
-- Log del TTS: `%TEMP%\claudetalk.log`.
-- "No pega en esa app pero sí en otras": si la app corre como administrador y el daemon no, Windows bloquea el `Ctrl+V` sintético (UIPI). Lanzá el daemon con el mismo nivel de privilegios.
-- Dos instancias no pueden convivir: la segunda avisa y se cierra.
+- Dictation log (when running without a console): `%TEMP%\claudetalk-dictation.log`. Running it by hand in a terminal (`python voice-input\daemon_cli.py`) shows the same live, including a `[diag]` line for each paste with the target window, whether it's running elevated, and how many events `SendInput` accepted.
+- TTS log: `%TEMP%\claudetalk.log`.
+- "Doesn't paste into that app but does into others": if the app runs as administrator and the daemon doesn't, Windows blocks the synthetic `Ctrl+V` (UIPI). Launch the daemon with the same privilege level.
+- Two instances can't coexist: the second one warns and exits.
 
-## Desarrollo
+## Development
 
 ```powershell
 cd voice-input
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python daemon_cli.py        # con consola y logs en vivo
-.\.venv\Scripts\python test_hotkey.py       # ver qué teclas detecta
-.\.venv\Scripts\python test_inject.py       # pegar en un Notepad de prueba
+.\.venv\Scripts\python daemon_cli.py        # with console and live logs
+.\.venv\Scripts\python test_hotkey.py       # see which keys it detects
+.\.venv\Scripts\python test_inject.py       # paste into a test Notepad
 ```
 
-Si existe `voice-input\.venv`, tanto el hook como el lanzador lo prefieren sobre el venv de `%LOCALAPPDATA%`.
+If `voice-input\.venv` exists, both the hook and the launcher prefer it over the `%LOCALAPPDATA%` venv.
 
-## Licencia
+## License
 
-MIT. Ver [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

@@ -1,7 +1,7 @@
-"""Configuracion persistente del dictado: JSON en %APPDATA%\\claudeTalk.
+"""Persistent dictation settings: JSON in %APPDATA%\\claudeTalk.
 
-Se guarda fuera del repo para que sobreviva a actualizaciones del plugin y
-no ensucie git. Cada set() escribe a disco enseguida (son pocos valores).
+Stored outside the repo so it survives plugin updates and never pollutes
+git. Every set() writes to disk right away (there are only a few values).
 """
 
 import json
@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 CONFIG_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "claudeTalk"
-CONFIG_PATH = CONFIG_DIR / "dictado.json"
+CONFIG_PATH = CONFIG_DIR / "dictation.json"
 
 VK_LMENU = 0xA4
 VK_RCONTROL = 0xA3
@@ -19,37 +19,37 @@ DEFAULTS = {
     "silence_ms": 2000,
     "sound": True,
     "theme": "light",  # light | dark
-    "glass": 60,  # 0..100, intensidad del efecto vidrio (blur + transparencia)
+    "glass": 60,  # 0..100, glass effect intensity (blur + transparency)
     "position": "bottom",  # bottom | top
     "language": "es",  # es | en | auto
 }
 
 KEY_NAMES = {
-    0xA4: "Alt izq",
-    0xA5: "Alt der",
-    0xA2: "Ctrl izq",
-    0xA3: "Ctrl der",
-    0xA0: "Shift izq",
-    0xA1: "Shift der",
-    0x5B: "Win izq",
-    0x5C: "Win der",
-    0x20: "Espacio",
+    0xA4: "Left Alt",
+    0xA5: "Right Alt",
+    0xA2: "Left Ctrl",
+    0xA3: "Right Ctrl",
+    0xA0: "Left Shift",
+    0xA1: "Right Shift",
+    0x5B: "Left Win",
+    0x5C: "Right Win",
+    0x20: "Space",
     0x1B: "Esc",
     0x09: "Tab",
     0x0D: "Enter",
-    0x08: "Retroceso",
-    0x14: "Bloq Mayús",
+    0x08: "Backspace",
+    0x14: "Caps Lock",
     0x2D: "Insert",
-    0x2E: "Supr",
-    0x24: "Inicio",
-    0x23: "Fin",
-    0x21: "Re Pág",
-    0x22: "Av Pág",
-    0x25: "Izquierda",
-    0x26: "Arriba",
-    0x27: "Derecha",
-    0x28: "Abajo",
-    0x5D: "Menú",
+    0x2E: "Delete",
+    0x24: "Home",
+    0x23: "End",
+    0x21: "Page Up",
+    0x22: "Page Down",
+    0x25: "Left",
+    0x26: "Up",
+    0x27: "Right",
+    0x28: "Down",
+    0x5D: "Menu",
     0xBB: "+",
     0xBD: "-",
     0xBC: ",",
@@ -69,7 +69,7 @@ KEY_NAMES.update({0x60 + i: f"Num {i}" for i in range(10)})
 
 
 def key_name(vk: int) -> str:
-    return KEY_NAMES.get(vk, f"Tecla {vk:#04x}")
+    return KEY_NAMES.get(vk, f"Key {vk:#04x}")
 
 
 def hotkey_label(vks) -> str:
