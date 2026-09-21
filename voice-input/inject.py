@@ -53,22 +53,52 @@ PASTE_DELAY_BEFORE_S = 0.03
 PASTE_DELAY_AFTER_S = 0.15
 
 
+ULONG_PTR = ctypes.c_size_t
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
         ("wVk", wintypes.WORD),
         ("wScan", wintypes.WORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [
+        ("uMsg", wintypes.DWORD),
+        ("wParamL", wintypes.WORD),
+        ("wParamH", wintypes.WORD),
     ]
 
 
 class _INPUTunion(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT)]
+    # La union tiene que incluir MOUSEINPUT aunque no se use: es el miembro
+    # mas grande y define el tamano real de INPUT (40 bytes en x64). Con solo
+    # KEYBDINPUT quedaba en 32, cbSize no coincidia y SendInput devolvia 0
+    # (ERROR_INVALID_PARAMETER) en silencio: nada se pegaba nunca.
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
 
 
 class INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("union", _INPUTunion)]
+
+
+user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+user32.SendInput.restype = wintypes.UINT
 
 
 def get_foreground_window() -> int:
@@ -77,11 +107,12 @@ def get_foreground_window() -> int:
 
 def _key_event(vk: int, key_up: bool) -> int:
     """Devuelve cuantos eventos inserto SendInput: 1 si entro, 0 si Windows
-    lo bloqueo (UIPI: la ventana destino corre con mas privilegios que este
-    proceso). Ese 0 es la unica senal que da Windows de que el paste no va a
-    llegar; antes se ignoraba y quedaba como si hubiera pegado."""
+    lo rechazo (estructura INPUT mal dimensionada, o UIPI si la ventana
+    destino corre con mas privilegios que este proceso). Ese 0 es la unica
+    senal que da Windows de que el paste no va a llegar; antes se ignoraba y
+    quedaba como si hubiera pegado."""
     flags = KEYEVENTF_KEYUP if key_up else 0
-    inp = INPUT(type=INPUT_KEYBOARD, union=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, None)))
+    inp = INPUT(type=INPUT_KEYBOARD, union=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, 0)))
     return user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
 
 
@@ -92,7 +123,7 @@ def _send_keys(events: list[tuple[int, bool]]) -> int:
     inputs = array_type()
     for i, (vk, key_up) in enumerate(events):
         flags = KEYEVENTF_KEYUP if key_up else 0
-        inputs[i] = INPUT(type=INPUT_KEYBOARD, union=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, None)))
+        inputs[i] = INPUT(type=INPUT_KEYBOARD, union=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, 0)))
     return user32.SendInput(len(events), inputs, ctypes.sizeof(INPUT))
 
 
@@ -241,6 +272,6 @@ def paste_text_if_focus_unchanged(text: str, expected_hwnd: int) -> bool:
         f"| modificadores al pegar: {mods} | SendInput acepto {sent}/4 eventos"
     )
     if sent < 4:
-        print("[diag] Windows bloqueo el Ctrl+V (UIPI): la ventana destino corre elevada y el daemon no")
+        print(f"[diag] SendInput rechazo eventos (GetLastError={ctypes.get_last_error()})")
 
     return sent == 4

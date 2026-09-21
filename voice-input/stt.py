@@ -23,7 +23,7 @@ MODEL_NAME = "large-v3-turbo"
 DEVICE = "cuda"
 COMPUTE_TYPE = "float16"
 BEAM_SIZE = 1
-IDLE_UNLOAD_SECONDS = 600
+IDLE_UNLOAD_SECONDS = 1800
 
 
 class ResidentTranscriber:
@@ -48,6 +48,11 @@ class ResidentTranscriber:
                 self._model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE_TYPE)
                 self._notify("loaded")
             self._last_use = time.monotonic()
+
+    def warm_up(self):
+        """Carga el modelo por adelantado: la primera transcripcion tarda
+        segundos si hay que subirlo a VRAM en ese momento."""
+        self._ensure_loaded()
 
     def transcribe(self, audio) -> str:
         self._ensure_loaded()

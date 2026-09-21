@@ -14,7 +14,6 @@ import ctypes
 import sys
 import threading
 import time
-import winsound
 
 # La consola de Windows arranca en cp1252: imprimir un titulo de ventana con
 # emoji o el texto dictado con tildes rompia con UnicodeEncodeError o salia
@@ -28,25 +27,8 @@ import audio
 import hotkey
 import inject
 import overlay
+import sounds
 from stt import ResidentTranscriber
-
-BEEP_START = (880, 90)
-BEEP_STOP = (440, 90)
-BEEP_INJECT = (1200, 60)
-BEEP_CLIPBOARD = [(700, 70), (700, 70)]
-
-
-def _beep(freq, dur):
-    threading.Thread(target=winsound.Beep, args=(freq, dur), daemon=True).start()
-
-
-def _beep_seq(pairs):
-    def _run():
-        for freq, dur in pairs:
-            winsound.Beep(freq, dur)
-            time.sleep(0.05)
-
-    threading.Thread(target=_run, daemon=True).start()
 
 HOTKEY = "ctrl+shift+space"
 INITIAL_PROMPT = (
@@ -63,6 +45,8 @@ transcriber = ResidentTranscriber(
     initial_prompt=INITIAL_PROMPT,
     on_state_change=lambda s: print(f"[modelo] {s}"),
 )
+
+threading.Thread(target=transcriber.warm_up, daemon=True).start()
 
 app, overlay_bridge = overlay.create_app_and_overlay()
 overlay_bridge.settings_clicked.connect(lambda: print("[ajustes] todavia no hay panel de ajustes"))
@@ -86,7 +70,7 @@ def _worker():
     global state
     hwnd = inject.get_foreground_window()
     overlay_bridge.recording_started.emit()
-    _beep(*BEEP_START)
+    sounds.chime_start()
     print("[grabando] habla ahora...")
     try:
         pcm = audio.record_until_silence(
@@ -96,7 +80,6 @@ def _worker():
     except audio.RecordingCancelled:
         pcm = None
     overlay_bridge.recording_stopped.emit()
-    _beep(*BEEP_STOP)
 
     if cancel_flag.is_set() or pcm is None or len(pcm) == 0:
         print("[cancelado] descartado")
@@ -117,10 +100,8 @@ def _worker():
     else:
         ok = inject.paste_text_if_focus_unchanged(text, hwnd)
         if ok:
-            _beep(*BEEP_INJECT)
             print("[inyectado]")
         else:
-            _beep_seq(BEEP_CLIPBOARD)
             print("[no pegado] texto queda en el portapapeles (ver [diag] arriba)")
 
     force_stop.clear()
@@ -142,7 +123,12 @@ def _on_press():
 
 
 global_hotkey = hotkey.GlobalHotkey(on_press=_on_press)
-global_hotkey.start()
+try:
+    global_hotkey.start()
+except OSError as exc:
+    print(f"[error] no se pudo registrar {HOTKEY}: {exc}")
+    print("[error] casi seguro ya hay otra instancia de daemon_cli.py corriendo; cerrala y volve a lanzar")
+    sys.exit(1)
 
 print(f"Escuchando {HOTKEY}. Ctrl+C para salir.")
 app.aboutToQuit.connect(global_hotkey.stop)

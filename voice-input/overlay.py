@@ -27,7 +27,7 @@ import sys
 import time
 
 from PySide6.QtCore import QEasingCurve, QObject, QPointF, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter, QPainterPath, QPixmap, QTransform
 from PySide6.QtWidgets import QApplication, QWidget
 
 WS_EX_NOACTIVATE = 0x08000000
@@ -54,9 +54,10 @@ BAR_MAX_HEIGHT = 30
 BARS_AREA_WIDTH = WIDTH - 44  # deja lugar a la tuerca a la derecha
 
 GEAR_CENTER_X = WIDTH - 24
-GEAR_OUTER_R = 8.0
-GEAR_INNER_R = 6.2
-GEAR_HOLE_R = 2.6
+GEAR_OUTER_R = 9.6
+GEAR_BODY_R = 6.9
+GEAR_TOOTH_W = 3.8
+GEAR_HOLE_R = 3.1
 GEAR_TEETH = 8
 GEAR_HIT_R = 14
 
@@ -71,29 +72,20 @@ def _lerp(a: float, b: float, t: float) -> float:
 
 
 def _gear_path() -> QPainterPath:
-    path = QPainterPath()
-    step = 2 * math.pi / GEAR_TEETH
-    gap = step * 0.5
-    slant = step * 0.07
-    points = []
+    """Cuerpo circular + dientes redondeados (union booleana) menos el agujero
+    central: bordes suaves y forma de tuerca estandar, sin poligono a mano."""
+    body = QPainterPath()
+    body.addEllipse(QPointF(0, 0), GEAR_BODY_R, GEAR_BODY_R)
+    tooth_len = GEAR_OUTER_R - GEAR_BODY_R + 2.6
     for k in range(GEAR_TEETH):
-        a0 = k * step
-        points.append((GEAR_INNER_R, a0))
-        points.append((GEAR_INNER_R, a0 + gap))
-        points.append((GEAR_OUTER_R, a0 + gap + slant))
-        points.append((GEAR_OUTER_R, a0 + step - slant))
-    first = True
-    for radius, angle in points:
-        p = QPointF(radius * math.cos(angle), radius * math.sin(angle))
-        if first:
-            path.moveTo(p)
-            first = False
-        else:
-            path.lineTo(p)
-    path.closeSubpath()
-    path.addEllipse(QPointF(0, 0), GEAR_HOLE_R, GEAR_HOLE_R)
-    path.setFillRule(Qt.FillRule.OddEvenFill)
-    return path
+        tooth = QPainterPath()
+        tooth.addRoundedRect(-GEAR_TOOTH_W / 2, -GEAR_OUTER_R, GEAR_TOOTH_W, tooth_len, 1.5, 1.5)
+        rotation = QTransform()
+        rotation.rotate(k * 360.0 / GEAR_TEETH)
+        body = body.united(rotation.map(tooth))
+    hole = QPainterPath()
+    hole.addEllipse(QPointF(0, 0), GEAR_HOLE_R, GEAR_HOLE_R)
+    return body.subtracted(hole)
 
 
 class RecordingOverlay(QWidget):
@@ -275,22 +267,26 @@ class RecordingOverlay(QWidget):
         painter.setClipPath(pill)
         if self._bg_pixmap is not None:
             painter.drawPixmap(0, 0, self._bg_pixmap)
-        painter.fillPath(pill, QColor(0, 0, 0, 150))
+        painter.fillPath(pill, QColor(255, 255, 255, 178))
 
-        sheen = QLinearGradient(0, top, 0, top + HEIGHT * 0.55)
-        sheen.setColorAt(0.0, QColor(255, 255, 255, 34))
+        sheen = QLinearGradient(0, top, 0, top + HEIGHT * 0.5)
+        sheen.setColorAt(0.0, QColor(255, 255, 255, 120))
         sheen.setColorAt(1.0, QColor(255, 255, 255, 0))
         painter.fillPath(pill, sheen)
 
-        depth = QLinearGradient(0, top + HEIGHT * 0.5, 0, top + HEIGHT)
+        depth = QLinearGradient(0, top + HEIGHT * 0.55, 0, top + HEIGHT)
         depth.setColorAt(0.0, QColor(0, 0, 0, 0))
-        depth.setColorAt(1.0, QColor(0, 0, 0, 70))
+        depth.setColorAt(1.0, QColor(0, 0, 0, 22))
         painter.fillPath(pill, depth)
         painter.setClipping(False)
 
-        painter.setPen(QColor(255, 255, 255, 72))
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QColor(255, 255, 255, 190))
         painter.drawPath(pill)
+        inner = QPainterPath()
+        inner.addRoundedRect(1.0, top + 1.0, WIDTH - 2.0, HEIGHT - 2.0, radius - 1.0, radius - 1.0)
+        painter.setPen(QColor(0, 0, 0, 30))
+        painter.drawPath(inner)
 
         if self._note is not None:
             self._paint_note(painter, top)
@@ -311,13 +307,13 @@ class RecordingOverlay(QWidget):
             y = center_y - bar_h / 2
             bar = QPainterPath()
             bar.addRoundedRect(x, y, float(BAR_WIDTH), bar_h, BAR_WIDTH / 2, BAR_WIDTH / 2)
-            alpha = int(170 + 85 * min(1.0, level * 1.6))
-            painter.fillPath(bar, QColor(255, 255, 255, alpha))
+            alpha = int(150 + 100 * min(1.0, level * 1.6))
+            painter.fillPath(bar, QColor(0, 0, 0, alpha))
 
     def _paint_note(self, painter: QPainter, top: float):
         remaining = max(0.0, self._note_until - time.monotonic())
-        alpha = int(235 * min(1.0, remaining / 0.35))
-        painter.setPen(QColor(255, 255, 255, alpha))
+        alpha = int(225 * min(1.0, remaining / 0.35))
+        painter.setPen(QColor(0, 0, 0, alpha))
         font = QFont("Segoe UI", 9)
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.6)
         painter.setFont(font)
@@ -325,14 +321,14 @@ class RecordingOverlay(QWidget):
 
     def _paint_gear(self, painter: QPainter):
         c = self._gear_center()
-        alpha = int(120 + 110 * self._gear_hover_t)
+        alpha = int(115 + 120 * self._gear_hover_t)
         scale = 1.0 + 0.12 * self._gear_hover_t
         painter.save()
         painter.translate(c)
         painter.rotate(self._gear_angle)
         painter.scale(scale, scale)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.fillPath(self._gear_path, QColor(255, 255, 255, alpha))
+        painter.fillPath(self._gear_path, QColor(0, 0, 0, alpha))
         painter.restore()
 
 

@@ -46,17 +46,26 @@ class GlobalHotkey:
         self._vk = vk
         self._thread_id = None
         self._ready = threading.Event()
+        self._error = None
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
+        """Bloquea hasta que el hotkey quede registrado. Si otro proceso ya lo
+        tiene (WinError 1409, tipico: otra instancia del daemon), lanza OSError
+        aca, en el hilo que llama, en vez de morir en silencio en el hilo del
+        message loop."""
         self._thread.start()
         self._ready.wait()
+        if self._error is not None:
+            raise self._error
 
     def _run(self):
         self._thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
 
         if not user32.RegisterHotKey(None, HOTKEY_ID, self._modifiers, self._vk):
-            raise ctypes.WinError(ctypes.get_last_error())
+            self._error = ctypes.WinError(ctypes.get_last_error())
+            self._ready.set()
+            return
 
         self._ready.set()
 
