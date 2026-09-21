@@ -6,13 +6,17 @@ prefiere no mantenerla.
 Esc durante la grabacion: cancela y descarta.
 """
 
+import sys
 import threading
 import time
 import winsound
 
+from PySide6.QtCore import QTimer
+
 import audio
 import hotkey
 import inject
+import overlay
 from stt import ResidentTranscriber
 
 BEEP_START = (880, 90)
@@ -49,6 +53,8 @@ transcriber = ResidentTranscriber(
     on_state_change=lambda s: print(f"[modelo] {s}"),
 )
 
+app, overlay_bridge = overlay.create_app_and_overlay()
+
 
 def _should_cancel():
     """Polling desde audio.record_until_silence (cada BLOCK_MS).
@@ -71,11 +77,16 @@ def _worker():
     global state
     hwnd = inject.get_foreground_window()
     _beep(*BEEP_START)
+    overlay_bridge.recording_started.emit()
     print("[grabando] habla ahora...")
     try:
-        pcm = audio.record_until_silence(should_cancel=_should_cancel)
+        pcm = audio.record_until_silence(
+            should_cancel=_should_cancel,
+            on_level=overlay_bridge.level_changed.emit,
+        )
     except audio.RecordingCancelled:
         pcm = None
+    overlay_bridge.recording_stopped.emit()
     _beep(*BEEP_STOP)
 
     if cancel_flag.is_set() or pcm is None or len(pcm) == 0:
@@ -121,7 +132,13 @@ global_hotkey = hotkey.GlobalHotkey(on_press=_on_press)
 global_hotkey.start()
 
 print(f"Escuchando {HOTKEY}. Ctrl+C para salir.")
-try:
-    threading.Event().wait()
-except KeyboardInterrupt:
-    global_hotkey.stop()
+app.aboutToQuit.connect(global_hotkey.stop)
+
+# El loop nativo de Qt no le da chance al interprete de Python de atender
+# senales (Ctrl+C) mientras no hay eventos de ventana; este timer inocuo lo
+# despierta cada 200ms para que SIGINT no quede colgado.
+_signal_pump = QTimer()
+_signal_pump.timeout.connect(lambda: None)
+_signal_pump.start(200)
+
+sys.exit(app.exec())

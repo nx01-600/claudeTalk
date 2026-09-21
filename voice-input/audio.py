@@ -23,11 +23,13 @@ def _rms(block: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(block.astype(np.float32)))))
 
 
-def record_until_silence(should_cancel=None) -> np.ndarray:
+def record_until_silence(should_cancel=None, on_level=None) -> np.ndarray:
     """Graba desde el microfono default hasta detectar silencio sostenido.
 
     should_cancel: callable opcional que devuelve True para cortar la grabacion
     (usada por la segunda pulsacion del hotkey o Esc).
+    on_level: callable opcional que recibe un float en [0, 1] por cada bloque,
+    para alimentar un indicador visual del volumen (ver overlay.py).
     """
     block_size = int(SAMPLE_RATE * BLOCK_MS / 1000)
     blocks: list[np.ndarray] = []
@@ -55,10 +57,15 @@ def record_until_silence(should_cancel=None) -> np.ndarray:
 
             if elapsed_ms < CALIBRATION_MS:
                 noise_floor_samples.append(level)
+                if on_level is not None:
+                    on_level(0.0)
                 continue
 
             if noise_floor is None:
                 noise_floor = max(np.mean(noise_floor_samples), 1e-4)
+
+            if on_level is not None:
+                on_level(min(1.0, level / (noise_floor * SILENCE_MARGIN * 3)))
 
             is_speech = level > noise_floor * SILENCE_MARGIN
 
