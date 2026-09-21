@@ -22,8 +22,10 @@ function Resolve-Edge($p) {
     if ($p -and (Test-Path $p)) { return $p }
     $c = (Get-Command edge-tts.exe -ErrorAction SilentlyContinue).Source
     if ($c) { return $c }
-    $fb = "C:\Users\nicol.HP-PAVILION\AppData\Local\Programs\Python\Python313\Scripts\edge-tts.exe"
-    if (Test-Path $fb) { return $fb }
+    # Instalacion tipica de Python para el usuario, cualquier version 3.x
+    $fb = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Programs\Python\Python3*\Scripts\edge-tts.exe") -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending | Select-Object -First 1
+    if ($fb) { return $fb.FullName }
     return $null
 }
 
@@ -31,8 +33,10 @@ function Resolve-Ffplay($p) {
     if ($p -and (Test-Path $p)) { return $p }
     $c = (Get-Command ffplay.exe -ErrorAction SilentlyContinue).Source
     if ($c) { return $c }
-    $fb = "C:\Users\nicol.HP-PAVILION\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffplay.exe"
-    if (Test-Path $fb) { return $fb }
+    # ffmpeg instalado con winget (Gyan.FFmpeg), cualquier version
+    $fb = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages\Gyan.FFmpeg*") -Filter ffplay.exe -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($fb) { return $fb.FullName }
     return $null
 }
 

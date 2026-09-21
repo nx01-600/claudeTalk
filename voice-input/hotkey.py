@@ -1,82 +1,80 @@
-"""Hotkey global via RegisterHotKey (nativo de Windows), no un hook de bajo nivel.
+"""Hotkey global por acorde de teclas (por defecto Alt izquierdo + Ctrl derecho).
 
-`keyboard` (pip) instala un WH_KEYBOARD_LL que intercepta TODAS las teclas del
-sistema; ahi salian el auto-repeat storm y la necesidad de debounce manual.
-RegisterHotKey es la API que usa el propio Windows para atajos globales: el OS
-entrega un solo mensaje WM_HOTKEY por combinacion presionada, y MOD_NOREPEAT
-le pide al OS que no reenvie mensajes mientras la tecla siga apretada (repeat
-de autorepeticion), asi que el filtro de repeticion ya no hace falta.
+RegisterHotKey no sirve aca: sus flags MOD_ALT/MOD_CONTROL no distinguen
+lado, y no acepta un acorde hecho solo de modificadores. Un hook de bajo
+nivel (WH_KEYBOARD_LL, lo que usa la libreria `keyboard`) si lo permite,
+pero ya nos trajo storms de auto-repeat y desincronizaciones. En cambio se
+hace polling de GetAsyncKeyState cada 15ms desde un hilo propio: cuando
+todas las teclas del acorde pasan a estar apretadas se dispara una vez, y
+no se vuelve a disparar hasta que alguna se suelte. Sin hooks, sin
+repeticion, y el costo es despreciable.
 
-RegisterHotKey no tiene evento de "soltar", asi que el release se detecta con
-polling de GetAsyncKeyState desde el hilo que graba (ver `is_key_down`).
+`pressed_keys()` sirve para capturar una combinacion nueva desde ajustes.
 """
 
 import ctypes
 import threading
-from ctypes import wintypes
+import time
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
-MOD_ALT = 0x0001
-MOD_CONTROL = 0x0002
-MOD_SHIFT = 0x0004
-MOD_NOREPEAT = 0x4000
-WM_HOTKEY = 0x0312
-VK_SPACE = 0x20
 VK_ESCAPE = 0x1B
+POLL_S = 0.015
 
-HOTKEY_ID = 1
+# Codigos que no cuentan como "tecla" al capturar un acorde: botones del
+# mouse y los modificadores genericos (Windows los marca apretados a la vez
+# que la version izquierda/derecha, que es la que interesa).
+_CAPTURE_IGNORE = {0x01, 0x02, 0x04, 0x05, 0x06, 0x10, 0x11, 0x12, 0x90, 0x91}
 
 
 def is_key_down(vk: int) -> bool:
     return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
 
-class GlobalHotkey:
-    """Registra un hotkey global y corre un message loop en su propio hilo.
+def pressed_keys() -> list[int]:
+    """Teclas fisicamente apretadas ahora mismo (sin mouse ni modificadores
+    genericos), ordenadas por codigo."""
+    return [vk for vk in range(0x08, 0xFF) if vk not in _CAPTURE_IGNORE and is_key_down(vk)]
 
-    `on_press` se llama (desde el hilo del hotkey) cada vez que llega WM_HOTKEY.
-    No hay callback de "release": quien reciba on_press debe hacer polling de
-    `is_key_down(VK_SPACE)` si necesita saber cuando se suelta.
-    """
 
-    def __init__(self, on_press, modifiers=MOD_CONTROL | MOD_SHIFT, vk=VK_SPACE):
+class ChordHotkey:
+    """Llama a `on_press` (desde su propio hilo) cada vez que el acorde pasa
+    de suelto a apretado. `set_keys` cambia el acorde en caliente; `pause`
+    lo silencia mientras ajustes captura una combinacion nueva."""
+
+    def __init__(self, on_press, keys, poll_s: float = POLL_S):
         self._on_press = on_press
-        self._modifiers = modifiers | MOD_NOREPEAT
-        self._vk = vk
-        self._thread_id = None
-        self._ready = threading.Event()
-        self._error = None
+        self._keys = tuple(keys)
+        self._poll_s = poll_s
+        self._paused = threading.Event()
+        self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
-        """Bloquea hasta que el hotkey quede registrado. Si otro proceso ya lo
-        tiene (WinError 1409, tipico: otra instancia del daemon), lanza OSError
-        aca, en el hilo que llama, en vez de morir en silencio en el hilo del
-        message loop."""
         self._thread.start()
-        self._ready.wait()
-        if self._error is not None:
-            raise self._error
-
-    def _run(self):
-        self._thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
-
-        if not user32.RegisterHotKey(None, HOTKEY_ID, self._modifiers, self._vk):
-            self._error = ctypes.WinError(ctypes.get_last_error())
-            self._ready.set()
-            return
-
-        self._ready.set()
-
-        msg = wintypes.MSG()
-        try:
-            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-                if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-                    self._on_press()
-        finally:
-            user32.UnregisterHotKey(None, HOTKEY_ID)
 
     def stop(self):
-        if self._thread_id is not None:
-            user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)  # WM_QUIT
+        self._stop.set()
+
+    def set_keys(self, keys):
+        self._keys = tuple(keys)
+
+    def pause(self):
+        self._paused.set()
+
+    def resume(self):
+        self._paused.clear()
+
+    def _run(self):
+        armed = True
+        while not self._stop.is_set():
+            keys = self._keys
+            all_down = bool(keys) and all(is_key_down(vk) for vk in keys)
+            if self._paused.is_set():
+                armed = False
+            elif all_down and armed:
+                armed = False
+                self._on_press()
+            elif not all_down:
+                armed = True
+            time.sleep(self._poll_s)

@@ -1,23 +1,31 @@
-"""Diagnostico: confirma que Ctrl+Shift+Space dispara UNA vez por pulsacion
-(sin auto-repeat) y que soltar la tecla se detecta por polling."""
+"""Diagnostico: confirma que el acorde configurado dispara UNA vez por
+pulsacion (sin auto-repeat) y muestra que teclas ve `pressed_keys()`,
+util para verificar la captura de ajustes."""
 
 import time
 
+import config as cfg
 import hotkey
+
+config = cfg.Config()
+keys = config.get("hotkey")
 
 
 def on_press():
-    print("HOTKEY DISPARADO (WM_HOTKEY)", flush=True)
+    print("ACORDE DISPARADO", flush=True)
 
 
-gh = hotkey.GlobalHotkey(on_press=on_press)
-gh.start()
+chord = hotkey.ChordHotkey(on_press=on_press, keys=keys)
+chord.start()
 
-print("Escuchando ctrl+shift+space. Mantene apretado 3s y sola. Ctrl+C para salir.", flush=True)
+print(f"Escuchando {cfg.hotkey_label(keys)}. Ctrl+C para salir.", flush=True)
 try:
+    last = []
     while True:
-        if hotkey.is_key_down(hotkey.VK_SPACE):
-            print("space: abajo", flush=True)
-        time.sleep(0.2)
+        pressed = hotkey.pressed_keys()
+        if pressed != last:
+            print("teclas:", cfg.hotkey_label(pressed) or "-", flush=True)
+            last = pressed
+        time.sleep(0.05)
 except KeyboardInterrupt:
-    gh.stop()
+    chord.stop()

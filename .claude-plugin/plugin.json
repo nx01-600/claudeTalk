@@ -1,8 +1,12 @@
 {
   "name": "claudeTalk",
-  "version": "0.1.0",
-  "description": "Le da voz a Claude Code: lee en voz alta sus respuestas (TTS con edge-tts) cuando el modo voz esta activo. Etapa 1 de un futuro modo de conversacion en vivo.",
+  "version": "0.2.0",
+  "description": "Voz para Claude Code en Windows: lee las respuestas en voz alta (edge-tts) y dictado por voz local con Whisper en GPU, con overlay estilo liquid glass. Etapas 1 y 2 de un futuro modo de conversacion en vivo.",
   "author": {
     "name": "Nicolas Carreno"
-  }
+  },
+  "homepage": "https://github.com/nx01-600/claudeTalk",
+  "repository": "https://github.com/nx01-600/claudeTalk",
+  "license": "MIT",
+  "keywords": ["voice", "tts", "stt", "whisper", "dictation", "windows", "spanish"]
 }

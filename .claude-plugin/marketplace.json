@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "claudeTalk",
-      "description": "Le da voz a Claude Code: lee en voz alta sus respuestas (TTS con edge-tts) cuando el modo voz esta activo.",
-      "version": "0.1.0",
+      "description": "Voz para Claude Code en Windows: lee las respuestas en voz alta (edge-tts) y dictado por voz local con Whisper, con overlay liquid glass.",
+      "version": "0.2.0",
       "source": "./",
       "category": "productivity"
     }

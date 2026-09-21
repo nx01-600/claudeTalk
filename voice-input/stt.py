@@ -45,7 +45,13 @@ class ResidentTranscriber:
         with self._lock:
             if self._model is None:
                 self._notify("loading")
-                self._model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE_TYPE)
+                try:
+                    self._model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE_TYPE)
+                except (RuntimeError, ValueError, OSError) as exc:
+                    # Sin GPU NVIDIA/CUDA utilizable: CPU con int8. Mas lento (segundos
+                    # por frase en vez de decimas), pero funciona en cualquier maquina.
+                    self._notify(f"cuda no disponible ({exc.__class__.__name__}), usando cpu")
+                    self._model = WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
                 self._notify("loaded")
             self._last_use = time.monotonic()
 
@@ -54,11 +60,12 @@ class ResidentTranscriber:
         segundos si hay que subirlo a VRAM en ese momento."""
         self._ensure_loaded()
 
-    def transcribe(self, audio) -> str:
+    def transcribe(self, audio, language: str | None = "es") -> str:
+        """language=None deja que Whisper detecte el idioma."""
         self._ensure_loaded()
         segments, _info = self._model.transcribe(
             audio,
-            language="es",
+            language=language,
             beam_size=BEAM_SIZE,
             initial_prompt=self._initial_prompt or None,
             vad_filter=True,
