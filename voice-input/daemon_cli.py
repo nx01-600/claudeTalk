@@ -80,6 +80,14 @@ INITIAL_PROMPTS = {
     ),
 }
 CLAUDE_CHECK_S = 5
+# Mic sensitivity -> (silence margin over the noise floor, fraction of the
+# loudest block below which sound counts as silence). Lower sensitivity
+# ignores more background talk (speakers, echo, other people).
+SENSITIVITY = {
+    "low": (5.0, 0.25),
+    "medium": (3.5, 0.12),
+    "high": (2.5, 0.05),
+}
 
 config = cfg.Config()
 
@@ -124,11 +132,15 @@ def _worker():
         sounds.chime_start()
     print("[recording] speak now...")
     try:
+        margin, peak_ratio = SENSITIVITY.get(config.get("sensitivity"), SENSITIVITY["medium"])
         pcm = audio.record_until_silence(
             should_cancel=_should_cancel,
             on_level=bridge.level_changed.emit,
             silence_hold_ms=int(config.get("silence_ms")),
+            silence_margin=margin,
+            peak_ratio=peak_ratio,
         )
+        pcm = audio.noise_gate(pcm, peak_ratio)
     except audio.RecordingCancelled:
         pcm = None
     bridge.recording_stopped.emit()

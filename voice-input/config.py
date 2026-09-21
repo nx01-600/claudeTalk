@@ -18,6 +18,7 @@ VK_SPACE = 0x20
 DEFAULTS = {
     "hotkey": [VK_CONTROL, VK_SHIFT, VK_SPACE],  # generic Ctrl/Shift: either side works
     "silence_ms": 2000,
+    "sensitivity": "medium",  # low | medium | high (how easily the mic counts sound as speech)
     "sound": True,
     "theme": "light",  # light | dark
     "glass": 60,  # 0..100, glass effect intensity (blur + transparency)

@@ -485,6 +485,7 @@ class SettingsPanel(_GlassWindow):
             ("group", "Activation", None, None),
             ("hotkey", "Keys", "hotkey", None),
             ("segment", "Silence cutoff", "silence_ms", [(1000, "1 s"), (2000, "2 s"), (3000, "3 s")]),
+            ("segment", "Mic sensitivity", "sensitivity", [("low", "Low"), ("medium", "Medium"), ("high", "High")]),
             ("toggle", "Sound on start", "sound", None),
             ("group", "Appearance", None, None),
             ("segment", "Theme", "theme", [("light", "Light"), ("dark", "Dark")]),

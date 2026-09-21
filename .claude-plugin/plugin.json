@@ -1,6 +1,6 @@
 {
   "name": "claudeTalk",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Voice for Claude Code on Windows: reads responses out loud (edge-tts) and local voice dictation with Whisper on GPU, with a liquid glass style overlay. Stages 1 and 2 of a future live conversation mode.",
   "author": {
     "name": "Nicolas Carreno"

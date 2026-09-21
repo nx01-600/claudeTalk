@@ -9,7 +9,7 @@
     {
       "name": "claudeTalk",
       "description": "Voice for Claude Code on Windows: reads responses out loud (edge-tts) and local voice dictation with Whisper, with a liquid glass overlay.",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "source": "./",
       "category": "productivity"
     }

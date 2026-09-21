@@ -18,7 +18,7 @@ Dictation comes with a floating *liquid glass* overlay (black and white, light o
 | **Voice dictation** | A tap of `Ctrl + Shift + Space` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
 | **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. The text **always** ends up on the clipboard too. |
 | **Liquid glass overlay** | Floating pill with frosted glass, live volume bars, and a settings gear. Never steals focus. |
-| **Live settings** | Activation keys (captures the chord you press), silence cutoff, sound, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
+| **Live settings** | Activation keys (captures the chord you press), silence cutoff, mic sensitivity, sound, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
 | **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when the last interactive Claude Code session ends (the `SessionStart` hook registers each session; headless `claude -p` subprocesses spawned by other plugins are ignored). You can also launch it by hand as an app (it sits in the tray). |
 | **Claude's voice (TTS)** | `/voice-on` and `/voice-off`. Reads the latest response, skips code blocks, doesn't block the terminal. |
 
@@ -70,7 +70,7 @@ If you switched windows in the meantime, it pastes nothing: the text stays on th
 Click the gear on the pill (or right-click the tray icon → **Settings**).
 
 - **Dictation**
-- **Activation**: **Keys** — click and press the new combination; it saves on release, `Esc` cancels. **Silence cutoff** — 1, 2, or 3 s. **Sound on start** — the chime when recording begins.
+- **Activation**: **Keys** — click and press the new combination; it saves on release, `Esc` cancels. **Silence cutoff** — 1, 2, or 3 s. **Mic sensitivity** — Low / Medium / High: how easily sound counts as speech; lower it if voices from your speakers (a call, echo) keep the recording going or get transcribed. **Sound on start** — the chime when recording begins.
 - **Appearance**: **Theme** — Light / Dark. **Glass** — how much blur and transparency. **Position** — Bottom / Top.
 - **Transcription**: **Language** — Spanish / English / Auto.
 - **Turn off dictation**: shuts the daemon down completely, asks for confirmation.
