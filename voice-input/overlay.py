@@ -10,20 +10,21 @@ on-screen keyboard uses). That's why the panel doesn't use focusable Qt
 widgets (QPushButton, QSlider): everything is painted and resolved with the
 mouse.
 
-The frosted-glass effect does NOT use Windows' native backdrop
-(DWMWA_SYSTEMBACKDROP_TYPE / SetWindowCompositionAttribute): both APIs were
-tried and only return a solid panel with no blur when the window has content
-painted by hand with Qt instead of being a pure WinUI3 app, which is what
-they're designed for. Instead, the screen region where the window is about
-to appear is captured right before showing it and blurred by hand
-(downscale + upscale), in grayscale. The intensity ("Glass" in settings)
-controls both how much blur and how much transparency at once.
+The glass is real and live: the window is excluded from screen capture
+(WDA_EXCLUDEFROMCAPTURE), so while it is visible it can grab what is behind
+itself 25 times a second, blur it (color kept, saturation boosted), tint it,
+and add edge lensing plus a specular rim. Windows' native backdrops
+(DWMWA_SYSTEMBACKDROP_TYPE / SetWindowCompositionAttribute) were tried and
+only produce a flat solid panel for a window whose content Qt paints by hand,
+so they are not used. The "Glass" setting drives blur, tint and saturation.
 """
 
 import ctypes
 import math
 import sys
 import time
+
+import numpy as np
 
 from PySide6.QtCore import QEasingCurve, QObject, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap, QTransform
@@ -46,10 +47,17 @@ SHADOW_OFFSET_Y = 4
 SHADOW_SPREAD = 12
 
 
+WDA_EXCLUDEFROMCAPTURE = 0x11
+
+
 def _apply_native_overlay_styles(hwnd: int):
     user32 = ctypes.windll.user32
     style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
     user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
+    # Invisible to screen capture: that is what lets the window grab what is
+    # behind itself while visible (live backdrop). Side effect: the overlay
+    # does not show up in screenshots or screen sharing.
+    user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
 
 
 def _lerp(a: float, b: float, t: float) -> float:
@@ -84,33 +92,69 @@ class Style:
     def surface(self, alpha: int) -> QColor:
         return QColor(0, 0, 0, alpha) if self.dark else QColor(255, 255, 255, alpha)
 
-    def blur_factor(self) -> int:
-        return int(round(4 + 10 * self.glass))
+    # "Glass" slider: 0 = almost opaque and barely blurred, 100 = very clear
+    # glass with a deep blur. Tint is what keeps text legible on busy backgrounds.
+    def blur_px(self) -> int:
+        return int(round(_lerp(10, 36, self.glass)))
 
-    def wash_alpha(self) -> int:
-        return int(round(_lerp(238, 128, self.glass)))
+    def tint_alpha(self) -> int:
+        return int(round(_lerp(200, 60, self.glass)))
+
+    def saturation(self) -> float:
+        return _lerp(1.15, 1.5, self.glass)
 
 
-def _blurred_capture(widget: QWidget, style: Style) -> QPixmap:
-    """Snapshot of what's behind the widget (still hidden), blurred with
-    cheap downscale+upscale, in grayscale."""
+def _box_blur(a: np.ndarray, r: int) -> np.ndarray:
+    """Separable box blur on a float32 HxWxC array, edge-replicated."""
+    if r <= 0:
+        return a
+    pad = np.pad(a, ((r, r), (0, 0), (0, 0)), mode="edge")
+    c = np.cumsum(pad, axis=0)
+    a = (c[2 * r :] - c[: -2 * r]) / (2 * r)
+    pad = np.pad(a, ((0, 0), (r, r), (0, 0)), mode="edge")
+    c = np.cumsum(pad, axis=1)
+    return (c[:, 2 * r :] - c[:, : -2 * r]) / (2 * r)
+
+
+def _glassify(raw: QPixmap, style: Style) -> QPixmap:
+    """Turns a capture of what is behind the window into the glass backdrop:
+    real blur (three box passes at 1/3 resolution, close to a gaussian) with
+    color kept and saturation boosted, the way Apple's material does. Runs in
+    about 3 ms for the pill, so it can refresh live while the window is visible."""
+    img = raw.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+    w, h = img.width(), img.height()
+    scale = 3
+    small = img.scaled(
+        max(1, w // scale), max(1, h // scale), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
+    )
+    sw, sh = small.width(), small.height()
+    buf = np.frombuffer(small.constBits(), dtype=np.uint8).reshape(sh, small.bytesPerLine())[:, : sw * 4].reshape(sh, sw, 4)
+    rgb = buf[:, :, :3].astype(np.float32)
+    r = max(1, style.blur_px() // scale)
+    for _ in range(3):
+        rgb = _box_blur(rgb, r)
+    gray = rgb @ np.array([0.114, 0.587, 0.299], dtype=np.float32)  # BGR order
+    rgb = gray[..., None] + (rgb - gray[..., None]) * style.saturation()
+    rgb = np.clip(rgb * (0.92 if style.dark else 1.06), 0, 255)
+    out = np.empty((sh, sw, 4), dtype=np.uint8)
+    out[:, :, :3] = rgb.astype(np.uint8)
+    out[:, :, 3] = 255
+    image = QImage(out.tobytes(), sw, sh, sw * 4, QImage.Format.Format_ARGB32).scaled(
+        w, h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
+    )
+    result = QPixmap.fromImage(image)
+    result.setDevicePixelRatio(raw.devicePixelRatio())
+    return result
+
+
+def _capture_behind(widget: QWidget, style: Style) -> QPixmap:
+    """Grabs what is behind the widget. The window is excluded from screen
+    capture (WDA_EXCLUDEFROMCAPTURE), so this works while it is visible and
+    never captures the overlay itself."""
     geo = widget.geometry()
     screen = QApplication.screenAt(geo.center()) or QApplication.primaryScreen()
-    pixmap = screen.grabWindow(0, geo.x(), geo.y(), geo.width(), geo.height())
-    gray = pixmap.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
-    factor = style.blur_factor()
-    tiny = gray.scaled(
-        max(1, gray.width() // factor),
-        max(1, gray.height() // factor),
-        Qt.AspectRatioMode.IgnoreAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-    blurred = tiny.scaled(
-        gray.width(), gray.height(), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
-    )
-    result = QPixmap.fromImage(blurred)
-    result.setDevicePixelRatio(pixmap.devicePixelRatio())
-    return result
+    raw = screen.grabWindow(0, geo.x(), geo.y(), geo.width(), geo.height())
+    return _glassify(raw, style)
 
 
 def _paint_shadow(painter: QPainter, rect: QRectF, radius: float, style: Style):
@@ -126,27 +170,59 @@ def _paint_shadow(painter: QPainter, rect: QRectF, radius: float, style: Style):
         painter.fillPath(shadow, QColor(0, 0, 0, alpha))
 
 
+LENS_BAND_PX = 9
+LENS_SCALE = 1.07
+
+
 def _paint_glass(painter: QPainter, shape: QPainterPath, bg: QPixmap | None, rect: QRectF, radius: float, style: Style):
-    """Glass: outer shadow + blurred background + uniform theme-colored wash +
-    thin double border (light outside, dark inside). No gradients."""
+    """Liquid glass, layer by layer: outer shadow, live blurred backdrop, tint,
+    edge lensing (the backdrop slightly magnified inside the outer band, like
+    light bending at the edge of thick glass), a thin bright rim with a faint
+    dark inner line, and a specular highlight along the top edge."""
     _paint_shadow(painter, rect, radius, style)
     painter.setClipPath(shape)
     if bg is not None:
         painter.drawPixmap(0, 0, bg)
-    painter.fillPath(shape, style.surface(style.wash_alpha()))
+        painter.fillPath(shape, style.surface(style.tint_alpha()))
+        inner = QPainterPath()
+        inner.addRoundedRect(
+            rect.adjusted(LENS_BAND_PX, LENS_BAND_PX, -LENS_BAND_PX, -LENS_BAND_PX), radius - LENS_BAND_PX, radius - LENS_BAND_PX
+        )
+        painter.save()
+        painter.setClipPath(shape.subtracted(inner))
+        painter.setOpacity(0.7)
+        center = rect.center()
+        painter.translate(center)
+        painter.scale(LENS_SCALE, LENS_SCALE)
+        painter.translate(-center)
+        painter.drawPixmap(0, 0, bg)
+        painter.restore()
+        painter.setClipPath(shape)
+    else:
+        painter.fillPath(shape, style.surface(235))
     painter.setClipping(False)
 
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.setPen(QColor(255, 255, 255, 70 if style.dark else 190))
+    painter.setPen(QPen(QColor(255, 255, 255, 120 if style.dark else 220), 1.0))
     painter.drawPath(shape)
-    inner = QPainterPath()
-    inner.addRoundedRect(rect.adjusted(1, 1, -1, -1), radius - 1.0, radius - 1.0)
-    painter.setPen(QColor(0, 0, 0, 90 if style.dark else 30))
-    painter.drawPath(inner)
+    inner_line = QPainterPath()
+    inner_line.addRoundedRect(rect.adjusted(1, 1, -1, -1), radius - 1.0, radius - 1.0)
+    painter.setPen(QPen(QColor(0, 0, 0, 70 if style.dark else 28), 1.0))
+    painter.drawPath(inner_line)
+    painter.save()
+    painter.setClipRect(QRectF(rect.x(), rect.y(), rect.width(), rect.height() * 0.34))
+    painter.setPen(QPen(QColor(255, 255, 255, 150 if style.dark else 235), 1.4))
+    painter.drawPath(inner_line)
+    painter.restore()
+
+
+LIVE_REFRESH_MS = 40
 
 
 class _GlassWindow(QWidget):
-    """Shared base: frameless, always on top, never activates, translucent background."""
+    """Shared base: frameless, always on top, never activates, translucent
+    background, excluded from screen capture, and a live backdrop refresh
+    while visible."""
 
     def __init__(self, style: Style):
         super().__init__(None, WINDOW_FLAGS)
@@ -155,14 +231,23 @@ class _GlassWindow(QWidget):
         self.setMouseTracking(True)
         self.style_ = style
         self._bg_pixmap = None
+        self._live = QTimer(self)
+        self._live.setInterval(LIVE_REFRESH_MS)
+        self._live.timeout.connect(self.refresh_background)
         _apply_native_overlay_styles(int(self.winId()))
 
     def showEvent(self, event):
         super().showEvent(event)
         _apply_native_overlay_styles(int(self.winId()))
+        self._live.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._live.stop()
 
     def refresh_background(self):
-        self._bg_pixmap = _blurred_capture(self, self.style_)
+        self._bg_pixmap = _capture_behind(self, self.style_)
+        self.update()
 
 
 # --- pill -----------------------------------------------------------------

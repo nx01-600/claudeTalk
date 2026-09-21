@@ -17,7 +17,7 @@ Dictation comes with a floating *liquid glass* overlay (black and white, light o
 |---|---|
 | **Voice dictation** | A tap of `Ctrl + Shift + Space` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
 | **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. The text **always** ends up on the clipboard too. |
-| **Liquid glass overlay** | Floating pill with frosted glass, live volume bars, and a settings gear. Never steals focus. |
+| **Liquid glass overlay** | Floating pill made of live glass: what is behind it shows through blurred and in color, with edge refraction and a specular rim. Live volume bars and a settings gear. Never steals focus. |
 | **Live settings** | Activation keys (captures the chord you press), silence cutoff, mic sensitivity, sound, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
 | **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when the last interactive Claude Code session ends (the `SessionStart` hook registers each session; headless `claude -p` subprocesses spawned by other plugins are ignored). You can also launch it by hand as an app (it sits in the tray). |
 | **Claude's voice (TTS)** | `/voice-on` and `/voice-off`. Reads the latest response, skips code blocks, doesn't block the terminal. |
@@ -112,7 +112,7 @@ Decisions worth knowing (all explained in the docstrings):
 
 - **Hotkey without hooks.** `RegisterHotKey` doesn't distinguish left Alt from right Alt and doesn't accept modifier-only chords; low-level hooks (`keyboard`, `pynput`) bring auto-repeat storms. Polling `GetAsyncKeyState` solves both problems at negligible cost.
 - **Paste, don't type.** Typing character by character with `SendInput` loses accented characters depending on the app and can land in the wrong window partway through. Pasting via the clipboard is atomic and preserves Unicode.
-- **Glass without fragile APIs.** Windows 11's native backdrop (Mica/Acrylic) returns a solid panel for windows with hand-painted content. The overlay captures what's behind it, blurs it, and uses it as the background.
+- **Real, live glass.** Windows 11's native backdrops (Mica/Acrylic) return a solid panel for windows whose content Qt paints by hand, so the overlay does it itself: the window is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), grabs what is behind it 25 times a second, blurs it with color and boosted saturation, tints it, and adds edge lensing and a specular rim. Side effect: the overlay is invisible in screenshots and screen sharing.
 - **Never steals focus.** The overlay and panel use `WS_EX_NOACTIVATE`; if they were to activate, the paste would end up going to the overlay.
 - **Resident model.** Whisper preloads on startup and unloads after 30 minutes of no use to free VRAM.
 
