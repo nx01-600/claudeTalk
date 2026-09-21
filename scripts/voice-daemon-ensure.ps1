@@ -1,9 +1,17 @@
 # claudeTalk - voice-daemon-ensure.ps1
-# 'SessionStart' hook: leaves voice dictation running in --auto mode if it
-# isn't already running. Idempotent and fast: Claude Code doesn't wait on the daemon.
-# The daemon shuts down on its own when no Claude Code window is left open.
+# 'SessionStart' hook: registers this Claude Code session and leaves voice
+# dictation running in --auto mode if it isn't already. Idempotent and fast:
+# Claude Code doesn't wait on the daemon.
 #
-# Looks for the interpreter in this order:
+# Lifecycle: the hook walks up its parent chain to the claude.exe that started
+# this session and appends that PID to %APPDATA%\claudeTalk\sessions.txt. The
+# daemon (in --auto mode) checks every few seconds that at least one of those
+# PIDs is still a live claude.exe and shuts down when none is. Headless
+# Claude subprocesses (plugins spawning `claude -p` / `--output-format
+# stream-json`) are ignored: they are not windows the user can dictate into
+# and they would keep the daemon alive forever.
+#
+# Interpreter lookup order:
 #   1. the path saved by setup-voice.ps1 in %APPDATA%\claudeTalk\venv-path.txt
 #   2. <plugin>\voice-input\.venv        (install inside the repo)
 #   3. %LOCALAPPDATA%\claudeTalk\venv    (what setup-voice.ps1 creates by default)
@@ -14,9 +22,35 @@
 $ErrorActionPreference = "SilentlyContinue"
 $root = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $root "voice-input\daemon_cli.py"
+$stateDir = Join-Path $env:APPDATA "claudeTalk"
+$sessionsFile = Join-Path $stateDir "sessions.txt"
 
+# --- find the interactive claude.exe that owns this session --------------------
+$claudePid = $null
+$current = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
+for ($i = 0; $i -lt 12 -and $current; $i++) {
+    $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($current.ParentProcessId)"
+    if (-not $parent) { break }
+    if ($parent.Name -ieq "claude.exe") {
+        $cmd = [string]$parent.CommandLine
+        if ($cmd -match "--output-format" -or $cmd -match "(^|\s)-p(\s|$)" -or $cmd -match "--print") {
+            exit 0  # headless session: not a dictation target
+        }
+        $claudePid = $parent.ProcessId
+        break
+    }
+    $current = $parent
+}
+if (-not $claudePid) { exit 0 }
+
+New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+$known = @()
+if (Test-Path $sessionsFile) { $known = Get-Content $sessionsFile | Where-Object { $_ -match "^\d+$" } }
+if ($known -notcontains "$claudePid") { Add-Content -Path $sessionsFile -Value "$claudePid" }
+
+# --- launch the daemon if needed ----------------------------------------------
 $candidates = @()
-$saved = Join-Path $env:APPDATA "claudeTalk\venv-path.txt"
+$saved = Join-Path $stateDir "venv-path.txt"
 if (Test-Path $saved) { $candidates += (Join-Path (Get-Content $saved -Raw).Trim() "Scripts\pythonw.exe") }
 $candidates += (Join-Path $root "voice-input\.venv\Scripts\pythonw.exe")
 $candidates += (Join-Path $env:LOCALAPPDATA "claudeTalk\venv\Scripts\pythonw.exe")

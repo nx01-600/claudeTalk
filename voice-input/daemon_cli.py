@@ -19,7 +19,6 @@ touches the GUI goes through Qt signals (thread-safe).
 import argparse
 import ctypes
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -260,22 +259,65 @@ _refresh_tray_label()
 tray.show()
 
 
-# --- auto mode: lives while a Claude Code window is open ----------------
+# --- auto mode: lives while a registered Claude Code session is alive -------
+# The SessionStart hook (scripts/voice-daemon-ensure.ps1) appends the PID of
+# each interactive claude.exe to sessions.txt. Headless subprocesses
+# (`claude -p`, plugins' stream-json workers) are never registered, so they
+# cannot keep the daemon alive after the user closes the last window. Simply
+# counting claude.exe processes did exactly that.
+
+SESSIONS_PATH = cfg.CONFIG_DIR / "sessions.txt"
+STILL_ACTIVE = 259
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+STARTUP_GRACE_S = 30
+_started_at = time.monotonic()
+
+_kernel32.OpenProcess.restype = ctypes.c_void_p
+_kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+_kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+_kernel32.QueryFullProcessImageNameW.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_ulong)]
+_kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
 
 
-def _claude_running() -> bool:
-    result = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq claude.exe", "/NH"],
-        capture_output=True,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
-    return b"claude.exe" in result.stdout.lower()
+def _is_live_claude(pid: int) -> bool:
+    """Alive AND still claude.exe (guards against PID reuse by another program)."""
+    handle = _kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = ctypes.c_ulong()
+        if not _kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != STILL_ACTIVE:
+            return False
+        size = ctypes.c_ulong(1024)
+        buf = ctypes.create_unicode_buffer(size.value)
+        if not _kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return False
+        return buf.value.lower().endswith("claude.exe")
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def _live_sessions() -> list[int]:
+    try:
+        pids = [int(line) for line in SESSIONS_PATH.read_text(encoding="utf-8").split() if line.isdigit()]
+    except OSError:
+        return []
+    alive = [pid for pid in pids if _is_live_claude(pid)]
+    if alive != pids:
+        try:
+            SESSIONS_PATH.write_text("".join(f"{pid}\n" for pid in alive), encoding="utf-8")
+        except OSError:
+            pass
+    return alive
 
 
 def _auto_watchdog():
-    if not _claude_running():
-        print("[auto] no Claude Code window left; dictation exits")
-        app.quit()
+    if _live_sessions():
+        return
+    if time.monotonic() - _started_at < STARTUP_GRACE_S:
+        return  # the hook may still be writing the first session
+    print("[auto] no Claude Code session left; dictation exits")
+    app.quit()
 
 
 if args.auto:

@@ -19,7 +19,7 @@ Dictation comes with a floating *liquid glass* overlay (black and white, light o
 | **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. The text **always** ends up on the clipboard too. |
 | **Liquid glass overlay** | Floating pill with frosted glass, live volume bars, and a settings gear. Never steals focus. |
 | **Live settings** | Activation keys (captures the chord you press), silence cutoff, sound, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
-| **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when no Claude Code window is left. You can also launch it by hand as an app (it sits in the tray). |
+| **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when the last interactive Claude Code session ends (the `SessionStart` hook registers each session; headless `claude -p` subprocesses spawned by other plugins are ignored). You can also launch it by hand as an app (it sits in the tray). |
 | **Claude's voice (TTS)** | `/voice-on` and `/voice-off`. Reads the latest response, skips code blocks, doesn't block the terminal. |
 
 ## Requirements
