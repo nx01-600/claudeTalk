@@ -354,6 +354,20 @@ def is_claude_window(hwnd: int) -> bool:
     return claude_topic(hwnd) is not None
 
 
+# Windows shell surfaces that take no text: the desktop and the taskbars.
+# Focus lands there after clicking the desktop or the taskbar, and a Ctrl+V
+# sent to them "succeeds" without writing anything anywhere.
+_SHELL_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
+
+
+def is_shell_surface(hwnd: int) -> bool:
+    if not hwnd:
+        return True
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buf, 256)
+    return buf.value in _SHELL_CLASSES
+
+
 _WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
 

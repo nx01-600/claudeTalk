@@ -155,8 +155,13 @@ ducker = duck.Ducker()
 def _worker(woken: bool = False):
     global state
     hwnd = inject.get_foreground_window()
+    # Started on the desktop or the taskbar: nothing there takes text, so
+    # the dictation goes to the last Claude session, like "Oye Claude".
+    to_claude = woken or inject.is_shell_surface(hwnd)
+    if to_claude and not woken:
+        print("[target] focus is on the desktop/taskbar; sending to the last Claude session")
     target = last_claude_session
-    if woken and not inject.claude_topic(target[0]):
+    if to_claude and not inject.claude_topic(target[0]):
         # Never seen in front since the daemon started (or that window is
         # gone): take the front-most Claude Code window on screen.
         target = inject.find_claude_window()
@@ -204,10 +209,10 @@ def _worker(woken: bool = False):
         bridge.recording_stopped.emit()
         print("[empty] nothing to paste")
     else:
-        if woken or inject.is_claude_window(hwnd):
+        if to_claude or inject.is_claude_window(hwnd):
             # Tells Claude (and the talk hooks) this prompt was spoken, not typed.
             text = SPOKEN_MARK + text
-        if woken:
+        if to_claude:
             ok = inject.paste_into_window(text, *target, press_enter=bool(config.get("auto_enter")))
         else:
             ok = inject.paste_text_if_focus_unchanged(text, hwnd, press_enter=bool(config.get("auto_enter")))
@@ -304,7 +309,7 @@ def _reload_config():
     for panel in (bridge.panel, bridge.panel._companion):
         if panel is None:
             continue
-        if panel.isVisible() and ("theme" in changed or "glass" in changed):
+        if panel.isVisible() and "glass" in changed:
             panel.refresh_background()
         panel.update()
 

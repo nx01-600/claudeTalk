@@ -30,7 +30,6 @@ Settings (set <setting> <value>):
   wake         on | off   (start dictating by saying "Oye Claude")
   spoken       on | off   (talk mode answers out loud only dictated messages)
   share        on | off   (overlay visible in screen sharing)
-  theme        light | dark
   glass        0 to 100   (glass effect intensity)
   position     bottom | top
   language     es | en | auto   (dictation language)
@@ -133,11 +132,7 @@ function Resolve-Setting($name, $v) {
     if ($n -in "wake", "wake_word", "oye") { $b = ConvertTo-Bool $v; return @("wake_word", $b, "Oye Claude $(Get-OnOff $b)") }
     if ($n -in "spoken", "speak_only_spoken", "solo_voz") { $b = ConvertTo-Bool $v; return @("speak_only_spoken", $b, "speak only to dictated messages $(Get-OnOff $b)") }
     if ($n -in "share", "show_in_capture", "capture") { $b = ConvertTo-Bool $v; return @("show_in_capture", $b, "visible in screen share $(Get-OnOff $b)") }
-    if ($n -in "theme", "tema") {
-        if ($plain -match '^(light|claro|blanco)') { return @("theme", "light", "light theme") }
-        if ($plain -match '^(dark|oscuro|negro)') { return @("theme", "dark", "dark theme") }
-        throw "theme is light or dark."
-    }
+    if ($n -in "theme", "tema") { throw "there is no theme setting any more: the overlay is always dark glass." }
     if ($n -in "position", "posicion") {
         if ($plain -match '^(bottom|abajo)') { return @("position", "bottom", "overlay at the bottom") }
         if ($plain -match '^(top|arriba)') { return @("position", "top", "overlay at the top") }

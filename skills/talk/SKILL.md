@@ -1,6 +1,6 @@
 ---
 name: talk
-description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice and speed, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word, speaking only to dictated messages, visibility in screen sharing, theme, glass, overlay position, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "ponlo en tema claro", "cambia el atajo a control alt espacio".
+description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice and speed, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word, speaking only to dictated messages, visibility in screen sharing, glass, overlay position, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "cambia el atajo a control alt espacio".
 argument-hint: "[on|off|stop|settings|set <setting> <value>]"
 allowed-tools: Bash, mcp__plugin_claudeTalk_voice__say
 ---
@@ -33,7 +33,6 @@ Every change is saved at once and the dictation app applies it within a second: 
 | `wake` | on / off | start dictating by saying "Oye Claude" (only while talk mode is on) |
 | `spoken` | on / off | talk mode answers out loud only messages the user dictated (they start with 🎙️); typed ones get text only |
 | `share` | on / off | overlay visible in screen sharing and recordings |
-| `theme` | light / dark | overlay theme |
 | `glass` | 0 to 100 | glass effect intensity |
 | `position` | bottom / top | where the overlay appears |
 | `language` | es / en / auto | dictation language |
@@ -49,4 +48,4 @@ Every change is saved at once and the dictation app applies it within a second: 
 - **error** (unknown setting or value): tell the user the valid options the script printed.
 
 If the user asks for several changes at once, run `set` once per setting.
-Turning dictation off completely is not a setting: tell the user to use the gear's "Turn off dictation" button.
+The overlay is always dark glass: there is no theme setting. Turning dictation off completely is not a setting: tell the user to use the gear's "Turn off dictation" button.

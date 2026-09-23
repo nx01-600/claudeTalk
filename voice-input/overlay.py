@@ -70,19 +70,15 @@ def _lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
 
 
-# --- shared style (theme + glass) ------------------------------------------
+# --- shared style (dark glass) --------------------------------------------
 
 
 class Style:
-    """Reads theme/glass/position from the config; the overlay and panel
+    """Reads glass/position from the config; the overlay and panel
     always paint from this, so a settings change is reflected instantly."""
 
     def __init__(self, config: cfg.Config):
         self.config = config
-
-    @property
-    def dark(self) -> bool:
-        return self.config.get("theme") == "dark"
 
     @property
     def glass(self) -> float:
@@ -97,29 +93,21 @@ class Style:
         return bool(self.config.get("show_in_capture"))
 
     def fg(self, alpha: int) -> QColor:
-        return QColor(255, 255, 255, alpha) if self.dark else QColor(0, 0, 0, alpha)
+        return QColor(255, 255, 255, alpha)
 
     def surface(self, alpha: int) -> QColor:
-        return QColor(0, 0, 0, alpha) if self.dark else QColor(255, 255, 255, alpha)
+        return QColor(0, 0, 0, alpha)
 
     def glyph(self, alpha: int) -> QColor:
-        """The pill's bars and gear: pure white on both themes."""
+        """The pill's bars and gear: pure white."""
         return QColor(255, 255, 255, alpha)
 
     def pill_veil(self) -> QColor:
-        """Veil over the pill's backdrop. The light theme gets a cool
-        neutral gray instead of a white wash, so the white bars read on
-        any background, bright pages included."""
-        if self.dark:
-            return self.surface(self.tint_alpha())
-        return QColor(96, 100, 110, int(round(_lerp(165, 120, self.glass))))
+        """Veil over the pill's backdrop."""
+        return self.surface(self.tint_alpha())
 
     def text(self, primary: bool = True) -> QColor:
-        """Text colors: pure black on the light theme (gray text on glass
-        reads washed out), near-white on the dark theme."""
-        if self.dark:
-            return QColor(255, 255, 255, 235 if primary else 150)
-        return QColor(0, 0, 0, 255 if primary else 175)
+        return QColor(255, 255, 255, 235 if primary else 150)
 
     # "Glass" slider: 0 = almost opaque and barely blurred, 100 = very clear
     # glass with a deep blur. Tint is what keeps text legible on busy backgrounds.
@@ -127,13 +115,10 @@ class Style:
         return int(round(_lerp(10, 36, self.glass)))
 
     def tint_alpha(self) -> int:
-        # No solid wash: at the top of the slider the glass is just the blurred
-        # backdrop with its rims. Lower values add a faint theme-colored veil
-        # for legibility on very busy content. The theme itself only decides
-        # text/control colors and whether the backdrop is lightened or darkened.
-        if self.dark:
-            return int(round(_lerp(90, 0, self.glass)))
-        return int(round(_lerp(120, 0, self.glass)))
+        # No solid wash: at the top of the slider the glass is just the blurred,
+        # darkened backdrop with its rims. Lower values add a faint black veil
+        # for legibility on very busy content.
+        return int(round(_lerp(90, 0, self.glass)))
 
     def saturation(self) -> float:
         return _lerp(1.15, 1.5, self.glass)
@@ -170,7 +155,7 @@ def _glassify(raw: QPixmap, style: Style) -> QPixmap:
         rgb = _box_blur(rgb, r)
     gray = rgb @ np.array([0.114, 0.587, 0.299], dtype=np.float32)  # BGR order
     rgb = gray[..., None] + (rgb - gray[..., None]) * style.saturation()
-    rgb = np.clip(rgb * (0.8 if style.dark else 1.25) + (0 if style.dark else 28), 0, 255)
+    rgb = np.clip(rgb * 0.8, 0, 255)
     out = np.empty((sh, sw, 4), dtype=np.uint8)
     out[:, :, :3] = rgb.astype(np.uint8)
     out[:, :, 3] = 255
@@ -195,7 +180,7 @@ def _paint_shadow(painter: QPainter, rect: QRectF, radius: float, style: Style):
     Cheap and good enough to separate the glass from the background."""
     painter.setPen(Qt.PenStyle.NoPen)
     layers = SHADOW_SPREAD
-    peak = 34 if not style.dark else 60
+    peak = 60
     for k in range(layers, -1, -1):
         alpha = int(peak * ((layers - k) / layers) ** 2 / 3.0) + 1
         shadow = QPainterPath()
@@ -240,15 +225,15 @@ def _paint_glass(
     painter.setClipping(False)
 
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.setPen(QPen(QColor(255, 255, 255, 120 if style.dark else 220), 1.0))
+    painter.setPen(QPen(QColor(255, 255, 255, 120), 1.0))
     painter.drawPath(shape)
     inner_line = QPainterPath()
     inner_line.addRoundedRect(rect.adjusted(1, 1, -1, -1), radius - 1.0, radius - 1.0)
-    painter.setPen(QPen(QColor(0, 0, 0, 70 if style.dark else 28), 1.0))
+    painter.setPen(QPen(QColor(0, 0, 0, 70), 1.0))
     painter.drawPath(inner_line)
     painter.save()
     painter.setClipRect(QRectF(rect.x(), rect.y(), rect.width(), rect.height() * 0.34))
-    painter.setPen(QPen(QColor(255, 255, 255, 150 if style.dark else 235), 1.4))
+    painter.setPen(QPen(QColor(255, 255, 255, 150), 1.4))
     painter.drawPath(inner_line)
     painter.restore()
 
@@ -269,7 +254,7 @@ class _GlassWindow(QWidget):
         self.setMouseTracking(True)
         self.style_ = style
         self._bg_pixmap = None
-        self._bg_raw = None  # last capture, re-blurred when theme/glass change
+        self._bg_raw = None  # last capture, re-blurred when glass changes
         self._live = QTimer(self)
         self._live.setInterval(LIVE_REFRESH_MS)
         self._live.timeout.connect(self.refresh_background)
@@ -499,7 +484,7 @@ class RecordingOverlay(_GlassWindow):
             self.fade_out()
 
     def restyle(self):
-        """After a theme/glass/position change in settings."""
+        """After a glass/position change in settings."""
         if self.isVisible():
             self._place()
             self.refresh_background()
@@ -761,7 +746,6 @@ class SettingsPanel(_GlassWindow):
             ("toggle", "Sound on start", "sound", None),
             ("toggle", "Send with Enter", "auto_enter", None),
             ("group", "Appearance", None, None),
-            ("segment", "Theme", "theme", [("light", "Light"), ("dark", "Dark")]),
             ("slider", "Glass", "glass", None),
             ("segment", "Position", "position", [("bottom", "Bottom"), ("top", "Top")]),
             ("toggle", "Show in screen share", "show_in_capture", None),
@@ -1065,7 +1049,7 @@ class SettingsPanel(_GlassWindow):
     def _set(self, key: str, value):
         self.config.set(key, value)
         self.settings_changed.emit(key, value)
-        if key in ("theme", "glass"):
+        if key == "glass":
             self.refresh_background()
         self.update()
 
@@ -1166,9 +1150,8 @@ class SettingsPanel(_GlassWindow):
         knob = QPainterPath()
         knob.addEllipse(QPointF(kx, r.center().y()), knob_r, knob_r)
         painter.fillPath(knob, QColor(255, 255, 255))
-        if st.dark:
-            painter.setPen(QPen(QColor(0, 0, 0, 60), 1))
-            painter.drawPath(knob)
+        painter.setPen(QPen(QColor(0, 0, 0, 60), 1))
+        painter.drawPath(knob)
 
     def _paint_segment(self, painter: QPainter, r: QRectF, key: str, opts, index: int):
         st = self.style_
@@ -1188,7 +1171,7 @@ class SettingsPanel(_GlassWindow):
             if selected:
                 chip = QPainterPath()
                 chip.addRoundedRect(seg.adjusted(2, 2, -2, -2), SEG_H / 2 - 2, SEG_H / 2 - 2)
-                painter.fillPath(chip, st.surface(255) if not st.dark else st.fg(60))
+                painter.fillPath(chip, st.fg(60))
                 painter.setPen(QPen(st.fg(28), 1))
                 painter.drawPath(chip)
             elif hover_n == i:
@@ -1344,7 +1327,7 @@ class OverlayBridge(QObject):
         self.transcribing.connect(overlay.show_busy)
         self.finished.connect(overlay.show_result)
         self.level_changed.connect(overlay.set_level)
-        panel.settings_changed.connect(lambda key, _value: overlay.restyle() if key in ("theme", "glass", "position") else None)
+        panel.settings_changed.connect(lambda key, _value: overlay.restyle() if key in ("glass", "position") else None)
         panel.settings_changed.connect(self._on_capture_setting)
 
     def _on_capture_setting(self, key, _value):

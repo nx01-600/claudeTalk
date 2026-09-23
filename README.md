@@ -5,7 +5,7 @@ Voice for **Claude Code** on Windows, in both directions:
 - **Claude speaks**: reads its responses out loud (Microsoft neural voices via `edge-tts`).
 - **You dictate**: press a key chord, talk, and the text appears transcribed in the window you had focused. All local: Whisper runs on your GPU (or CPU), the audio never leaves your machine.
 
-Dictation comes with a floating *liquid glass* overlay (black and white, light or dark) with bars that follow your voice, and a settings panel from the gear icon.
+Dictation comes with a floating *liquid glass* overlay (dark glass, white ink) with bars that follow your voice, and a settings panel from the gear icon.
 
 > Status: functional and in daily use. This is stage 2 of a project whose north star is a live, interruptible conversation with Claude, like a call.
 
@@ -16,16 +16,16 @@ Dictation comes with a floating *liquid glass* overlay (black and white, light o
 | | |
 |---|---|
 | **Voice dictation** | A tap of `Ctrl + Shift + Space` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
-| **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. The text **always** ends up on the clipboard too. |
+| **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. If the focus was on the desktop or the taskbar (nothing there takes text), it goes to your last Claude Code session instead, like "Oye Claude". The text **always** ends up on the clipboard too. |
 | **Liquid glass overlay** | Floating pill made of live glass: what is behind it shows through blurred and in color, with edge refraction and a specular rim. Live volume bars and a settings gear. Never steals focus. |
 | **Send confirmation** | The pill stays up while it transcribes, then compacts into a glass circle: green check when the text was pasted, amber clipboard icon when it was only left on the clipboard (e.g. you switched windows). |
 | **"Oye Claude" (hands-free)** | With talk mode on, say "Oye Claude" and dictate. The text goes to your last Claude Code session (right terminal tab included) from any app, and is sent. The terminal stays invisible while it happens, so nothing pops up over what you are doing. |
 | **Spoken vs typed** | Dictations sent to Claude start with 🎙️, so Claude knows they were spoken and reads past transcription slips. With **Speak only when I talk** on, a typed message gets a silent text answer while talk mode stays on. |
 | **One voice per session** | Talk mode is per Claude Code session. When several sessions talk at once, each one gets its own voice automatically (6 voices: Colombian, Mexican, Argentine and US Spanish) and introduces it when talk mode starts, so you can tell by ear which session is answering. They take turns, never talk over each other. |
 | **No echo** | If Claude is talking when you start dictating, its voice dips in volume until you finish, so the mic doesn't write Claude's words into your message. |
-| **Live settings** | Activation keys (captures the chord you press), silence cutoff, mic sensitivity, sound, send with Enter, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
+| **Live settings** | Activation keys (captures the chord you press), silence cutoff, mic sensitivity, sound, send with Enter, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
 | **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when the last interactive Claude Code session ends (the `SessionStart` hook registers each session; headless `claude -p` subprocesses spawned by other plugins are ignored). You can also launch it by hand as an app (it sits in the tray). |
-| **Talk mode (TTS)** | `/talk` turns it on and off. Claude answers for a listener: short answers are read aloud, long ones get a spoken summary while the detail stays on screen. Answers queue up instead of cutting each other. Claude can change any setting when asked in plain words ("habla más rápido", "ponlo en tema oscuro"). |
+| **Talk mode (TTS)** | `/talk` turns it on and off. Claude answers for a listener: short answers are read aloud, long ones get a spoken summary while the detail stays on screen. Answers queue up instead of cutting each other. Claude can change any setting when asked in plain words ("habla más rápido", "cambia a la voz de Elena"). |
 
 ## Requirements
 
@@ -84,7 +84,7 @@ Click the gear on the pill (or right-click the tray icon → **Settings**).
 
 - **Dictation**
 - **Activation**: **Keys** — click and press the new combination; it saves on release, `Esc` cancels. **Silence cutoff** — a slider from 0.5 to 10 s, in quarter seconds. **Mic sensitivity** — a 0-100 slider: how easily sound counts as speech; lower it if voices from your speakers (a call, echo) keep the recording going or get transcribed. **Sound on start** — the chime when recording begins. **Send with Enter** — press Enter right after pasting, so the dictated message is sent without touching the keyboard (off by default).
-- **Appearance**: **Theme** — Light / Dark. **Glass** — how much blur and transparency. **Position** — Bottom / Top. **Show in screen share** — off by default, the pill and panels are invisible to screen sharing, screenshots and recordings. On, they show up there too; the glass then uses one snapshot of the background taken as the window appears instead of refreshing live (it would otherwise capture itself). It never takes focus either way.
+- **Appearance**: the overlay is always dark glass with white text (a light theme existed but read poorly on most desktops). **Glass** — how much blur and transparency. **Position** — Bottom / Top. **Show in screen share** — off by default, the pill and panels are invisible to screen sharing, screenshots and recordings. On, they show up there too; the glass then uses one snapshot of the background taken as the window appears instead of refreshing live (it would otherwise capture itself). It never takes focus either way.
 - **Transcription**: **Language** — Spanish / English / Auto.
 - **Turn off dictation**: shuts the daemon down completely, asks for confirmation.
 
@@ -117,6 +117,48 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Clau
 - **Claude lowers its voice while you dictate**: if Claude is still talking when a recording starts, its volume dips (the ffplay player's volume in the Windows mixer) until the recording ends, and any phrase that starts meanwhile is read a bit slower. That keeps the mic from writing Claude's words into your message.
 - The on/off switch is per project, in `.claude/claudetalk.local.md` (`enabled`, `skip_code`).
 - Voices come from edge-tts: Microsoft Edge's "Read aloud" service. It's free and needs no key or account, but it isn't an official API, so Microsoft could limit or change it.
+
+## Resource usage
+
+Measured on a laptop with an RTX 5070 Ti Laptop GPU (12 GB) and a 24-thread CPU, with the daemon in `--auto` mode. Your numbers will vary with the hardware, but the proportions hold.
+
+### Dictation daemon (the only resident piece)
+
+| Resource | While idle | While dictating |
+|---|---|---|
+| **VRAM** | about **2.1 GB** (measured: 1.5 GB used by the system without the daemon, 3.7 GB with it) | the same, plus a short spike while Whisper decodes |
+| **RAM** | about **275 MB** working set. Windows reports about 3.1 GB *committed* (reserved address space for the CUDA and cuBLAS libraries); that is not memory in use. | about the same |
+| **CPU** | about **4-5 % of one core** (0.2 % of the whole CPU), with or without talk mode: the overlay's timers, the hotkey hook, watching which window is in front, and reading the mic for the wake word | Whisper runs on the GPU. 30 s of speech took 0.5 s to transcribe; 49 s took 3.2 s. |
+
+Why it doesn't cost that all the time:
+
+- **One model for everything.** Whisper `large-v3-turbo` (float16, CUDA) stays loaded in VRAM so a dictation starts without waiting. "Oye Claude" reuses that same model; no second wake word model is loaded.
+- **It unloads itself.** After **30 minutes** without use the model is released and the 2.1 GB of VRAM go back to the system. The next dictation reloads it, which takes a few seconds.
+- **Silence is free.** The wake word listener only reads the mic. A cheap energy check cuts out short sound bursts (0.3 to 2.5 s), and only those reach Whisper. Silence and steady noise never touch the GPU.
+- **The wake word listens only while talk mode is on** in at least one session and the "Oye Claude" toggle is on. Otherwise the mic stays closed between dictations.
+- **The daemon closes when you do.** In `--auto` mode it shuts down when the last interactive Claude Code session ends, and all its memory goes back to the system. The gear's "Turn off dictation" closes it right away.
+- **No GPU?** It falls back to CPU (int8). That uses more CPU and is several times slower per dictation, but it needs no VRAM.
+
+### Claude's voice (talk mode)
+
+- Each spoken phrase starts `edge-tts` (about 5 MB) and `ffplay` (about 25 MB). Together they peak around **30 MB of RAM** and exit when the phrase ends. Nothing stays resident.
+- The speech itself is synthesized by Microsoft's online service, so it uses a little network bandwidth (a compressed MP3 stream) and no GPU.
+- Hooks run a short PowerShell process on each prompt and at the end of each answer (about 0.3 to 1 s of CPU), then exit.
+
+### Tokens added to your Claude conversation
+
+claudeTalk adds text to what Claude reads only while talk mode is on in that session. These are estimates, using about 4 characters per token:
+
+| When | What gets added | About |
+|---|---|---|
+| Talk mode **off** | nothing, not even the hook's reminder | **0 tokens** |
+| Every prompt, talk mode **on** | the reminder rules for answering a listener | **~300 tokens** per prompt |
+| Plus, if the prompt was dictated (🎙️) | the note about transcription slips | **~75 tokens** more |
+| Typed prompt with "Speak only when I talk" on | a single line saying to answer in text only | **~70 tokens** |
+| Always (plugin installed) | the `talk` skill's one-line description in the skill list, and the `say` tool's short schema | **~200 + ~100 tokens**, fixed per conversation |
+| When the skill runs (`/talk`, changing a setting) | the skill's instructions | **~1,100 tokens**, only that turn |
+
+Claude's answers also get a little longer in talk mode: each `say` call is one or two sentences (about 30 to 60 tokens). In exchange, long answers are summarized out loud instead of being read in full.
 
 ## How it works
 
