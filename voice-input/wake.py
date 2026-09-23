@@ -29,7 +29,7 @@ import audio
 
 BLOCK_MS = audio.BLOCK_MS
 PREROLL_MS = 300  # audio kept from before the burst, so "oye" isn't clipped
-BURST_END_MS = 450  # silence that closes a burst
+BURST_END_MS = 350  # silence that closes a burst (lower = answers sooner)
 BURST_MIN_MS = 300  # shorter bursts are clicks and knocks
 BURST_MAX_MS = 2500  # "oye claude" fits easily; longer is someone talking
 FLOOR_WINDOW_MS = 4000  # noise floor = low percentile of this recent window
@@ -40,8 +40,11 @@ TTS_TAIL_S = 0.8  # strict matching lasts this long after Claude stops talking
 # "y", "Roger" or anything else. So: either a call word right before the
 # name at the start, or a short burst (up to SHORT_WORDS words) that ends in
 # the name. A plain "claude" in the middle of a sentence doesn't count.
+# The call word+name also counts at the END of a longer burst ("y digo, oye
+# Claude"): people often say it right after something else, without a pause.
 NAMES = r"(claude|claud|clod|clode|cloud|clau|claus|klaus|claudio|glod|klod|clo)"
-WAKE_RE = re.compile(r"^(?:\w+\s+)?(oye|oy|oi|hey|ey|ei|oiga|okay|ok)\s+" + NAMES + r"\b")
+CALLS = r"(oye|oje|oyi|oj|oy|oi|hey|ey|ei|oiga|okay|ok|roger)"
+WAKE_RE = re.compile(r"^(?:\w+\s+){0,2}" + CALLS + r"\s+" + NAMES + r"\b|" + CALLS + r"\s+" + NAMES + r"$")
 WAKE_SHORT_RE = re.compile(NAMES + r"$")
 SHORT_WORDS = 3
 MAX_WAKE_MARGIN = 3.0  # a burst starts easier than a dictation, so "oye" isn't cut
