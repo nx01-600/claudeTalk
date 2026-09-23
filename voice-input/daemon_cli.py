@@ -403,7 +403,8 @@ def _is_live_claude(pid: int) -> bool:
         buf = ctypes.create_unicode_buffer(size.value)
         if not _kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
             return False
-        return buf.value.lower().endswith("claude.exe")
+        path = buf.value.lower()
+        return path.endswith("claude.exe") and "\\windowsapps\\" not in path  # not the desktop app
     finally:
         _kernel32.CloseHandle(handle)
 
@@ -422,6 +423,37 @@ def _live_sessions() -> list[int]:
     return alive
 
 
+# Same test as voice-daemon-ensure.ps1: `claude -p` / stream-json workers
+# spawned by plugins are not sessions the user dictates into. The Claude
+# desktop app is also named Claude.exe (installed under WindowsApps, with
+# Chromium --type= helpers): not a Claude Code terminal either.
+_INTERACTIVE_CLAUDE_PS = (
+    "Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | "
+    r"Where-Object { $_.ExecutablePath -notlike '*\WindowsApps\*' -and "
+    r"$_.CommandLine -notmatch '--output-format|--print|--type=|(^|\s)-p(\s|$)' } | "
+    "ForEach-Object { $_.ProcessId }"
+)
+
+
+def _interactive_claude_pids() -> list[int]:
+    """Interactive claude.exe processes running right now, found by command
+    line. Only asked when sessions.txt says none are left: a SessionStart
+    hook that was cut short, or a write that raced with the pruning below,
+    can leave a live session unregistered, and the daemon used to shut down
+    under the user's feet."""
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", _INTERACTIVE_CLAUDE_PS],
+            capture_output=True, text=True, timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [int(x) for x in out.split() if x.isdigit() and _is_live_claude(int(x))]
+
+
 def _auto_watchdog():
     if PERSISTENT_FLAG_PATH.exists():
         return  # launched as the standalone app; not tied to any Claude Code session
@@ -429,6 +461,16 @@ def _auto_watchdog():
         return
     if time.monotonic() - _started_at < STARTUP_GRACE_S:
         return  # the hook may still be writing the first session
+    if _busy():
+        return  # never cut a dictation in progress
+    found = _interactive_claude_pids()
+    if found:
+        try:
+            SESSIONS_PATH.write_text("".join(f"{pid}\n" for pid in found), encoding="utf-8")
+        except OSError:
+            pass
+        print(f"[auto] sessions.txt had no live session; re-registered {found}")
+        return
     print("[auto] no Claude Code session left; dictation exits")
     app.quit()
 
