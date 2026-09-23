@@ -326,13 +326,15 @@ GEAR_HIT_R = 14
 SHOW_MS = 220
 HIDE_MS = 170
 
-# After the text is sent: the bars fold into a badge (green check when it
-# was pasted, amber "!" when it was only left on the clipboard), which holds
-# for a moment before the pill fades out.
-BADGE_R = 14.0
-BADGE_IN_MS = 260
+# After the text is sent the whole pill shrinks into a glass circle (the
+# gear fades away, the bars fold into the middle) and a badge pops up inside
+# it: green check when it was pasted, amber "!" when it was only left on the
+# clipboard. It holds for a moment, then fades out.
+MORPH_MS = 340
+BADGE_R = 16.0
+BADGE_IN_MS = 260  # starts halfway through the morph
 CHECK_DRAW_MS = 240
-BADGE_HOLD_MS = 650
+BADGE_HOLD_MS = 700
 BADGE_OK = QColor(52, 199, 89)
 BADGE_WARN = QColor(255, 159, 10)
 BUSY_WAVE_SPEED = 7.0  # rad/s of the "transcribing" wave running through the bars
@@ -465,7 +467,7 @@ class RecordingOverlay(_GlassWindow):
         self._ok = ok
         self._set_phase("done")
         token = self._phase_token
-        QTimer.singleShot(BADGE_IN_MS + CHECK_DRAW_MS + BADGE_HOLD_MS, lambda: self._badge_done(token))
+        QTimer.singleShot(MORPH_MS // 2 + BADGE_IN_MS + CHECK_DRAW_MS + BADGE_HOLD_MS, lambda: self._badge_done(token))
 
     def _badge_done(self, token: int):
         if token == self._phase_token:
@@ -473,6 +475,12 @@ class RecordingOverlay(_GlassWindow):
 
     def _phase_ms(self) -> float:
         return (time.monotonic() - self._phase_t0) * 1000.0
+
+    def _morph(self) -> float:
+        """0 = full pill, 1 = compacted into a circle (done phase only)."""
+        if self._phase != "done":
+            return 0.0
+        return QEasingCurve(QEasingCurve.Type.InOutCubic).valueForProgress(min(1.0, self._phase_ms() / MORPH_MS))
 
     def _on_progress(self, value):
         self.setWindowOpacity(float(value))
@@ -520,6 +528,8 @@ class RecordingOverlay(_GlassWindow):
         return QPointF(INSET + GEAR_CENTER_X, self._pill_top() + HEIGHT / 2)
 
     def _over_gear(self, pos) -> bool:
+        if self._phase == "done":
+            return False  # the gear is gone once the message is sent
         c = self._gear_center()
         return math.hypot(pos.x() - c.x(), pos.y() - c.y()) <= GEAR_HIT_R
 
@@ -552,29 +562,31 @@ class RecordingOverlay(_GlassWindow):
 
         top = self._pill_top()
         radius = HEIGHT / 2
-        rect = QRectF(float(INSET), top, float(WIDTH), float(HEIGHT))
+        morph = self._morph()
+        width = _lerp(WIDTH, HEIGHT, morph)
+        rect = QRectF(INSET + (WIDTH - width) / 2, top, width, float(HEIGHT))
         pill = QPainterPath()
         pill.addRoundedRect(rect, radius, radius)
         _paint_glass(painter, pill, self._bg_pixmap, rect, radius, self.style_, veil=self.style_.pill_veil())
 
         if self._phase == "done":
-            fold = QEasingCurve(QEasingCurve.Type.InCubic).valueForProgress(min(1.0, self._phase_ms() / (BADGE_IN_MS * 0.6)))
-            if fold < 1.0:
-                self._paint_bars(painter, top, fold)
+            if morph < 1.0:
+                self._paint_bars(painter, top, morph)
             self._paint_badge(painter, top)
         else:
             self._paint_bars(painter, top)
-        self._paint_gear(painter)
-
-    def _bars_center_x(self) -> float:
-        return INSET + BARS_AREA_WIDTH / 2
+        gear_alpha = max(0.0, 1.0 - morph * 2.5)
+        if gear_alpha > 0.0:
+            painter.setOpacity(gear_alpha)
+            self._paint_gear(painter)
+            painter.setOpacity(1.0)
 
     def _paint_bars(self, painter: QPainter, top: float, fold: float = 0.0):
-        """fold 0..1: the bars slide into the center and shrink (on their way
-        to becoming the badge)."""
+        """fold 0..1: the bars slide into the middle of the pill and shrink,
+        along with the pill compacting into a circle."""
         total_w = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
         start_x = INSET + (BARS_AREA_WIDTH - total_w) / 2
-        center_x = self._bars_center_x()
+        center_x = INSET + WIDTH / 2
         center_y = top + HEIGHT / 2
         painter.setPen(Qt.PenStyle.NoPen)
         for i in range(BAR_COUNT):
@@ -590,11 +602,11 @@ class RecordingOverlay(_GlassWindow):
     def _paint_badge(self, painter: QPainter, top: float):
         """Colored disc that pops in, then a white check (or "!") drawn
         stroke by stroke."""
-        ms = self._phase_ms()
-        grow = QEasingCurve(QEasingCurve.Type.OutBack).valueForProgress(min(1.0, ms / BADGE_IN_MS))
-        if grow <= 0.0:
+        ms = self._phase_ms() - MORPH_MS / 2
+        if ms <= 0.0:
             return
-        c = QPointF(self._bars_center_x(), top + HEIGHT / 2)
+        grow = QEasingCurve(QEasingCurve.Type.OutBack).valueForProgress(min(1.0, ms / BADGE_IN_MS))
+        c = QPointF(INSET + WIDTH / 2, top + HEIGHT / 2)
         r = BADGE_R * grow
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(BADGE_OK if self._ok else BADGE_WARN)
