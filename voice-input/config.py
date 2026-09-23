@@ -18,13 +18,17 @@ VK_SPACE = 0x20
 DEFAULTS = {
     "hotkey": [VK_CONTROL, VK_SHIFT, VK_SPACE],  # generic Ctrl/Shift: either side works
     "silence_ms": 2000,
-    "sensitivity": "medium",  # low | medium | high (how easily the mic counts sound as speech)
+    "sensitivity": 50,  # 0..100, how easily the mic counts sound as speech
     "sound": True,
     "auto_enter": False,  # press Enter after pasting (sends the message)
+    "wake_word": False,  # while talk mode is on, "Oye Claude" starts a dictation (wake.py)
     "theme": "light",  # light | dark
     "glass": 60,  # 0..100, glass effect intensity (blur + transparency)
     "position": "bottom",  # bottom | top
     "language": "es",  # es | en | auto
+    # Claude's voice (talk mode). Read by scripts/talk-common.ps1 too.
+    "tts_voice": "es-CO-GonzaloNeural",  # any edge-tts neural voice
+    "tts_rate": "+0%",  # edge-tts rate: -15% | +0% | +20% | +40%
 }
 
 KEY_NAMES = {
@@ -97,6 +101,10 @@ class Config:
         for key in DEFAULTS:
             if key in stored:
                 self._data[key] = stored[key]
+        # sensitivity used to be low | medium | high
+        old = {"low": 25, "medium": 50, "high": 75}
+        if isinstance(self._data["sensitivity"], str):
+            self._data["sensitivity"] = old.get(self._data["sensitivity"], 50)
 
     def save(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)

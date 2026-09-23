@@ -1,53 +1,55 @@
 # claudeTalk - voice-toggle.ps1
-# Turns voice mode on / off / queries it by writing .claude/claudetalk.local.md
-# in the current workspace. Usage: voice-toggle.ps1 on|off|status
+# Turns talk mode on / off / flips it / queries it by writing
+# .claude/claudetalk.local.md in the current workspace.
+# Usage: voice-toggle.ps1 on|off|toggle|status
 
-param([Parameter(Mandatory=$true)][ValidateSet("on","off","status")][string]$Action)
+param([Parameter(Mandatory=$true)][ValidateSet("on","off","toggle","status")][string]$Action)
 
 $ErrorActionPreference = "Stop"
-$dir  = Join-Path (Get-Location).Path ".claude"
-$file = Join-Path $dir "claudetalk.local.md"
-$defaultVoice = "es-CO-GonzaloNeural"
+. (Join-Path $PSScriptRoot "talk-common.ps1")
+$file = Get-TalkStateFile (Get-Location).Path
+$dir  = Split-Path -Parent $file
 
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 if (-not (Test-Path $file)) {
 @"
 ---
 enabled: false
-voice: $defaultVoice
-rate: "+0%"
 skip_code: true
 ---
 
-# claudeTalk - voice mode status
-Controls whether claudeTalk reads Claude's responses out loud in this workspace.
-Change 'enabled' with /voice-on and /voice-off. You can edit 'voice' and 'rate' by hand.
-Neutral LATAM voices: es-CO-SalomeNeural, es-CO-GonzaloNeural, es-MX-DaliaNeural, es-MX-JorgeNeural.
+# claudeTalk - talk mode status
+Controls whether Claude talks to you out loud in this workspace.
+Flip 'enabled' with /talk. Voice and speed are picked in the dictation
+gear panel ("Claude's voice"), shared by every project.
 "@ | Set-Content -Path $file -Encoding UTF8
 }
 
 $content = Get-Content -Raw $file
 
+if ($Action -eq "toggle") {
+    $on = [regex]::Match($content, '(?m)^\s*enabled\s*:\s*true\s*$').Success
+    $Action = if ($on) { "off" } else { "on" }
+}
+
 switch ($Action) {
     "on" {
         $content = $content -replace '(?m)^(\s*enabled\s*:\s*).*$', '${1}true'
         $content | Set-Content $file -Encoding UTF8
-        Write-Output "claudeTalk: voice mode ON (Claude will read its responses out loud)."
+        Set-TalkFlag $true
+        Write-Output "claudeTalk: talk mode ON (Claude talks to you until you run /talk again)."
     }
     "off" {
         $content = $content -replace '(?m)^(\s*enabled\s*:\s*).*$', '${1}false'
         $content | Set-Content $file -Encoding UTF8
-        $pidFile = Join-Path $env:TEMP "claudetalk_player.pid"
-        if (Test-Path $pidFile) {
-            $old = Get-Content $pidFile -ErrorAction SilentlyContinue
-            if ($old) { Stop-Process -Id $old -Force -ErrorAction SilentlyContinue }
-        }
-        Write-Output "claudeTalk: voice mode OFF (silence)."
+        Set-TalkFlag $false
+        Stop-Speech
+        Write-Output "claudeTalk: talk mode OFF (silence)."
     }
     "status" {
         $en = [regex]::Match($content, '(?m)^\s*enabled\s*:\s*(\S+)').Groups[1].Value
-        $vo = [regex]::Match($content, '(?m)^\s*voice\s*:\s*(\S+)').Groups[1].Value
+        $st = Get-TalkState (Get-Location).Path
         $estado = if ($en -eq 'true') { 'ON' } else { 'OFF' }
-        Write-Output ("claudeTalk: voice mode " + $estado + " | voice: " + $vo + " | file: " + $file)
+        Write-Output ("claudeTalk: talk mode " + $estado + " | voice: " + $st.voice + " | speed: " + $st.rate + " | file: " + $file)
     }
 }

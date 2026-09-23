@@ -1,132 +1,84 @@
 # claudeTalk - speak.ps1
-# 'Stop' hook: reads the assistant's latest response from the transcript and
-# plays it out loud with edge-tts + ffplay, if voice mode is on.
+# 'Stop' hook: the safety net of talk mode. Claude is told (talk-context.ps1)
+# to either answer short, which gets read here, or to speak through the `say`
+# MCP tool. This script looks at the whole turn that just ended and decides:
+#   - text written after Claude's last `say`, and short  -> read it out loud
+#   - long text and Claude never spoke (or only spoke before doing work)
+#                                                        -> "I left it on screen"
+#   - long text right after a `say`                      -> nothing, `say` covered it
 #
 # Two modes:
-#   (entry)    -> parses stdin, validates state, extracts and cleans the text, launches the detached worker and exits fast.
-#   -Worker    -> hidden process that synthesizes (edge-tts) and plays (ffplay). Doesn't block Claude Code.
+#   (entry)    -> parses stdin, picks what to say, queues it and exits fast.
+#   -Worker    -> hidden process that drains the speech queue: edge-tts streams
+#                 mp3 into ffplay so audio starts before synthesis finishes.
 
-param(
-    [switch]$Worker,
-    [string]$TextFile,
-    [string]$Voice = "es-CO-GonzaloNeural",
-    [string]$Rate = "+0%",
-    [string]$EdgePath = "",
-    [string]$FfplayPath = ""
-)
+param([switch]$Worker)
 
 $ErrorActionPreference = "Stop"
-$log = Join-Path $env:TEMP "claudetalk.log"
+. (Join-Path $PSScriptRoot "talk-common.ps1")
 
-function Resolve-Edge($p) {
-    if ($p -and (Test-Path $p)) { return $p }
-    $c = (Get-Command edge-tts.exe -ErrorAction SilentlyContinue).Source
-    if ($c) { return $c }
-    # Typical per-user Python install, any 3.x version
-    $fb = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Programs\Python\Python3*\Scripts\edge-tts.exe") -ErrorAction SilentlyContinue |
-        Sort-Object FullName -Descending | Select-Object -First 1
-    if ($fb) { return $fb.FullName }
-    return $null
-}
-
-function Resolve-Ffplay($p) {
-    if ($p -and (Test-Path $p)) { return $p }
-    $c = (Get-Command ffplay.exe -ErrorAction SilentlyContinue).Source
-    if ($c) { return $c }
-    # ffmpeg installed via winget (Gyan.FFmpeg), any version
-    $fb = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages\Gyan.FFmpeg*") -Filter ffplay.exe -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($fb) { return $fb.FullName }
-    return $null
-}
-
-function Stop-PreviousPlayer {
-    $pidFile = Join-Path $env:TEMP "claudetalk_player.pid"
-    if (Test-Path $pidFile) {
-        $old = Get-Content $pidFile -ErrorAction SilentlyContinue
-        if ($old) { Stop-Process -Id $old -Force -ErrorAction SilentlyContinue }
-    }
-    return $pidFile
-}
+$MaxSpokenChars = 400
 
 # ----------------- WORKER MODE (detached) -----------------
-if ($Worker) {
+function Get-NextItem {
+    Get-ChildItem $script:TalkQueue -Filter *.json -ErrorAction SilentlyContinue |
+        Sort-Object Name | Select-Object -First 1
+}
+
+function Invoke-Item($file) {
     try {
-        $edge = Resolve-Edge $EdgePath
-        $ffplay = Resolve-Ffplay $FfplayPath
+        $item = [IO.File]::ReadAllText($file.FullName, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        $edge = Resolve-Edge $item.edge
+        $ffplay = Resolve-Ffplay $item.ffplay
         if (-not $edge -or -not $ffplay) {
-            "[$(Get-Date)] worker: edge or ffplay not found (edge=$edge ffplay=$ffplay)" | Add-Content $log
-            exit 0
+            Write-TalkLog "worker: edge or ffplay not found (edge=$edge ffplay=$ffplay)"
+            return
         }
-        if (-not (Test-Path $TextFile)) { exit 0 }
-        $text = Get-Content -Raw -Encoding UTF8 $TextFile
-        if (-not $text -or $text.Trim() -eq "") { exit 0 }
-
-        $mp3 = Join-Path $env:TEMP ("claudetalk_" + [guid]::NewGuid().ToString("N") + ".mp3")
-        & $edge --voice $Voice --rate $Rate --file $TextFile --write-media $mp3 2>> $log
-        if (-not (Test-Path $mp3)) { "[$(Get-Date)] worker: mp3 was not generated" | Add-Content $log; exit 0 }
-
-        $pidFile = Stop-PreviousPlayer
-        $p = Start-Process -FilePath $ffplay -ArgumentList "-nodisp","-autoexit","-loglevel","quiet",$mp3 -WindowStyle Hidden -PassThru
-        Set-Content -Path $pidFile -Value $p.Id
+        $txt = Join-Path $env:TEMP ("claudetalk_txt_" + [guid]::NewGuid().ToString("N") + ".txt")
+        [IO.File]::WriteAllText($txt, $item.text, (New-Object Text.UTF8Encoding($false)))
+        try {
+            # Cut while we were preparing: Stop-Speech deleted the item.
+            if (-not (Test-Path $file.FullName)) { return }
+            $line = '""{0}" --voice {1} --rate={2} --file "{3}" --write-media - 2>nul | "{4}" -nodisp -autoexit -loglevel quiet -i -"' -f `
+                $edge, $item.voice, $item.rate, $txt, $ffplay
+            $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/d /s /c $line" -WindowStyle Hidden -PassThru
+            Set-Content -Path $script:TalkPidFile -Value $p.Id
+            $p.WaitForExit()
+            # Done talking: the dictation's wake word listener (wake.py)
+            # reads this file to stay deaf while Claude speaks.
+            Remove-Item $script:TalkPidFile -Force -ErrorAction SilentlyContinue
+        } finally {
+            Remove-Item $txt -Force -ErrorAction SilentlyContinue
+        }
     } catch {
-        "[$(Get-Date)] worker error: $_" | Add-Content $log
+        Write-TalkLog "worker error: $_"
+    } finally {
+        Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($Worker) {
+    $mutex = New-Object System.Threading.Mutex($false, "Local\claudetalk_speaker")
+    while ($true) {
+        $owned = $false
+        try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+        if (-not $owned) { exit 0 }  # another drainer is running and will play our item
+        try {
+            while ($next = Get-NextItem) { Invoke-Item $next }
+        } finally {
+            $mutex.ReleaseMutex()
+        }
+        # An item may have landed between the last check and the release.
+        if (-not (Get-NextItem)) { break }
     }
     exit 0
 }
 
 # ----------------- ENTRY MODE (Stop hook) -----------------
-try {
-    $raw = [Console]::In.ReadToEnd()
-    if (-not $raw) { exit 0 }
-    $payload = $raw | ConvertFrom-Json
-
-    $cwd = $payload.cwd
-    if (-not $cwd) { $cwd = (Get-Location).Path }
-    $transcript = $payload.transcript_path
-    if (-not $transcript -or -not (Test-Path $transcript)) { exit 0 }
-
-    # --- read state (.claude/claudetalk.local.md in the workspace) ---
-    $stateFile = Join-Path $cwd ".claude\claudetalk.local.md"
-    if (-not (Test-Path $stateFile)) { exit 0 }
-    $state = Get-Content -Raw $stateFile
-
-    function Get-Val($key, $default) {
-        $pattern = '(?m)^\s*' + [regex]::Escape($key) + '\s*:\s*"?([^"\r\n]+?)"?\s*$'
-        $m = [regex]::Match($state, $pattern)
-        if ($m.Success) { return $m.Groups[1].Value.Trim() }
-        return $default
-    }
-
-    if ((Get-Val "enabled" "false") -ne "true") { exit 0 }
-    $voice      = Get-Val "voice" "es-CO-GonzaloNeural"
-    $rate       = Get-Val "rate" "+0%"
-    $skipCode   = (Get-Val "skip_code" "true") -eq "true"
-    $edgePath   = Get-Val "edge_tts_path" ""
-    $ffplayPath = Get-Val "ffplay_path" ""
-
-    # --- extract the assistant's latest response from the .jsonl transcript ---
-    $lines = Get-Content -Encoding UTF8 $transcript
-    $assistantText = $null
-    for ($i = $lines.Count - 1; $i -ge 0; $i--) {
-        $line = $lines[$i]
-        if (-not $line -or -not $line.Trim()) { continue }
-        try { $obj = $line | ConvertFrom-Json } catch { continue }
-        if (-not ($obj.message) -or $obj.message.role -ne "assistant") { continue }
-        $content = $obj.message.content
-        if (-not $content) { continue }
-        $sb = ""
-        foreach ($block in $content) {
-            if ($block.type -eq "text" -and $block.text) { $sb += $block.text + "`n" }
-        }
-        if ($sb.Trim()) { $assistantText = $sb; break }
-    }
-    if (-not $assistantText) { exit 0 }
-
-    # --- strip markdown / code so it sounds natural ---
-    $t = $assistantText
+function ConvertTo-Speech($text, $skipCode) {
+    $t = $text
     if ($skipCode) {
-        $t = [regex]::Replace($t, '(?s)```.*?```', ' code block. ')
+        $t = [regex]::Replace($t, '(?s)```.*?```', ' ')
     } else {
         $t = $t -replace '```', ''
     }
@@ -136,24 +88,102 @@ try {
     $t = [regex]::Replace($t, '(?m)^\s*>\s?', '')                # quotes
     $t = [regex]::Replace($t, '(?m)^\s*[-*+]\s+', '')            # bullets
     $t = [regex]::Replace($t, '(?m)^\s*[-*_]{3,}\s*$', '')       # horizontal rules
-    $t = $t -replace '[*_]{1,3}', ''                             # bold/italic
-    $t = $t -replace '`', ''                                     # stray backticks
+    $t = [regex]::Replace($t, '(?m)^\s*\|.*\|\s*$', '')          # table rows
+    $t = [regex]::Replace($t, '(?<!\w)[*_]{1,3}|[*_]{1,3}(?!\w)', '')  # bold/italic, keeps snake_case
+    $t = $t -replace '`', ''
     $t = [regex]::Replace($t, '[ \t]+', ' ')
     $t = [regex]::Replace($t, '(\r?\n){2,}', '. ')
-    $t = $t.Trim()
-    if (-not $t) { exit 0 }
+    return $t.Trim()
+}
 
-    # --- write the text and launch the detached worker (doesn't block the terminal) ---
-    $textFile = Join-Path $env:TEMP ("claudetalk_txt_" + [guid]::NewGuid().ToString("N") + ".txt")
-    Set-Content -Path $textFile -Value $t -Encoding UTF8
+function Test-IsSay($block) {
+    return ($block.type -eq "tool_use" -and $block.name -like "mcp__plugin_claudeTalk*__say")
+}
 
-    $self = $MyInvocation.MyCommand.Path
-    $psArgs = @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$self,
-                "-Worker","-TextFile",$textFile,"-Voice",$voice,"-Rate",$rate)
-    if ($edgePath)   { $psArgs += @("-EdgePath",$edgePath) }
-    if ($ffplayPath) { $psArgs += @("-FfplayPath",$ffplayPath) }
-    Start-Process -FilePath "powershell.exe" -ArgumentList $psArgs -WindowStyle Hidden
+# True when a transcript entry is a prompt the user typed (the start of a turn),
+# as opposed to tool results, injected skill bodies or subagent traffic.
+function Test-IsPrompt($obj) {
+    if ($obj.type -ne "user" -or $obj.isMeta -or $obj.isSidechain) { return $false }
+    $c = $obj.message.content
+    if ($c -is [string]) { return $true }
+    foreach ($b in $c) { if ($b.type -eq "tool_result") { return $false } }
+    return $true
+}
+
+# Entries of the turn that just ended, walked in order: the text written after
+# Claude's last `say`, whether it spoke at all, and whether it used other tools
+# after speaking.
+function Read-Turn($transcript) {
+    $lines = Get-Content -Encoding UTF8 $transcript
+    $turn = New-Object System.Collections.Generic.List[object]
+    for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+        $line = $lines[$i]
+        if (-not $line -or -not $line.Trim()) { continue }
+        try { $obj = $line | ConvertFrom-Json } catch { continue }
+        if (Test-IsPrompt $obj) { break }
+        if ($obj.isSidechain) { continue }
+        if ($obj.message -and $obj.message.role -eq "assistant") { $turn.Insert(0, $obj) }
+    }
+    $info = @{ spoke = $false; workAfterSay = $false; textAfter = "" }
+    foreach ($obj in $turn) {
+        foreach ($block in $obj.message.content) {
+            if (Test-IsSay $block) {
+                $info.spoke = $true; $info.workAfterSay = $false; $info.textAfter = ""
+            } elseif ($block.type -eq "tool_use") {
+                # Notes written between tool calls are progress chatter, not
+                # the answer: only the text after the last tool gets read.
+                $info.workAfterSay = $true; $info.textAfter = ""
+            } elseif ($block.type -eq "text" -and $block.text) {
+                $info.textAfter += $block.text + "`n"
+            }
+        }
+    }
+    return $info
+}
+
+try {
+    $raw = Read-HookInput
+    if (-not $raw) { exit 0 }
+    $payload = $raw | ConvertFrom-Json
+    $transcript = $payload.transcript_path
+    if (-not $transcript -or -not (Test-Path $transcript)) { exit 0 }
+
+    $state = Get-TalkState $payload.cwd
+    if (-not $state -or -not $state.enabled) { exit 0 }
+
+    # Claude Code can fire Stop a moment before the final message reaches the
+    # transcript. Newer versions hand that message over as
+    # last_assistant_message: wait until the transcript shows it. Older ones
+    # don't, so give the write a head start and retry while the turn is empty.
+    $last = ([string]$payload.last_assistant_message).Trim()
+    $probe = if ($last.Length -gt 40) { $last.Substring(0, 40) } else { $last }
+    Start-Sleep -Milliseconds 300
+    $turnInfo = $null
+    for ($try = 0; $try -lt 12; $try++) {
+        $turnInfo = Read-Turn $transcript
+        $found = if ($probe) { $turnInfo.textAfter.Contains($probe) } else { $turnInfo.spoke -or $turnInfo.textAfter.Trim() }
+        if ($found) { break }
+        Start-Sleep -Milliseconds 150
+    }
+    $spoke = $turnInfo.spoke
+    $workAfterSay = $turnInfo.workAfterSay
+    $textAfter = $turnInfo.textAfter
+    if ($probe -and -not $textAfter.Contains($probe)) {
+        # still not written: it is the final message, after any `say` or tool
+        $textAfter = $last
+        $workAfterSay = $false
+    }
+
+    $clean = ConvertTo-Speech $textAfter $state.skipCode
+    if (-not $clean) { exit 0 }
+    $fits = $clean.Length -le $MaxSpokenChars -and $textAfter -notmatch '```'
+
+    if ($fits) {
+        Add-Speech $clean $state
+    } elseif (-not $spoke -or $workAfterSay) {
+        Add-Speech ("Te dej" + [char]0x00E9 + " la respuesta en pantalla.") $state
+    }
 } catch {
-    "[$(Get-Date)] entry error: $_" | Add-Content $log
+    Write-TalkLog "entry error: $_"
 }
 exit 0

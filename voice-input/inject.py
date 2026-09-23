@@ -15,6 +15,7 @@ reason, the user can paste it manually from what's already copied.
 
 import ctypes
 import time
+import unicodedata
 from ctypes import wintypes
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -281,3 +282,136 @@ def paste_text_if_focus_unchanged(text: str, expected_hwnd: int, press_enter: bo
         time.sleep(ENTER_DELAY_S)
         _send_keys([(VK_RETURN, False), (VK_RETURN, True)])
     return sent == 4
+
+
+# --- wake word: paste into the last Claude Code window, wherever focus is ---
+
+SW_RESTORE = 9
+FOCUS_WAIT_S = 0.4
+VK_TAB = 0x09
+TAB_WAIT_S = 0.4  # time for the terminal to retitle itself after a tab switch
+MAX_TABS = 15
+# Claude Code titles its terminal "<glyph> <topic>": ✳ when idle, an
+# animated symbol (◐ ◑ ✢ ✶ braille dots...) while it works. A plain shell's
+# title starts with a letter or a path instead.
+SYMBOL_CATEGORIES = ("So", "Sm", "Po")
+
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+user32.BringWindowToTop.argtypes = [wintypes.HWND]
+user32.IsWindow.argtypes = [wintypes.HWND]
+user32.IsIconic.argtypes = [wintypes.HWND]
+user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+
+
+def window_title(hwnd: int) -> str:
+    length = user32.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buf, length + 1)
+    return buf.value
+
+
+def claude_topic(hwnd: int) -> str | None:
+    """The session topic if the window currently shows Claude Code (by the
+    title Claude Code gives its terminal), else None. The glyph is dropped:
+    it animates, the topic doesn't. A terminal with several tabs only shows
+    the active tab's title."""
+    if not hwnd or not user32.IsWindow(hwnd):
+        return None
+    title = window_title(hwnd).strip()
+    if len(title) > 2 and title[1] == " " and unicodedata.category(title[0]) in SYMBOL_CATEGORIES:
+        return title[2:].strip()
+    if "Claude Code" in title:
+        return title
+    return None
+
+
+def is_claude_window(hwnd: int) -> bool:
+    return claude_topic(hwnd) is not None
+
+
+def _focus(hwnd: int) -> bool:
+    """Brings `hwnd` to the front. Windows only lets the foreground process do
+    that, so this borrows the foreground thread's input queue for a moment."""
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    current = get_foreground_window()
+    this_thread = kernel32.GetCurrentThreadId()
+    fg_thread = user32.GetWindowThreadProcessId(current, None) if current else 0
+    attached = bool(fg_thread and fg_thread != this_thread and user32.AttachThreadInput(this_thread, fg_thread, True))
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            user32.AttachThreadInput(this_thread, fg_thread, False)
+    deadline = time.monotonic() + FOCUS_WAIT_S
+    while time.monotonic() < deadline:
+        if get_foreground_window() == hwnd:
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def _switch_tab(hwnd: int, backwards: bool = False):
+    """Ctrl+Tab / Ctrl+Shift+Tab: next / previous tab in Warp, Windows
+    Terminal and most tabbed terminals. Waits for the title to follow."""
+    before = window_title(hwnd)
+    keys = [(VK_CONTROL, False)] + ([(VK_SHIFT, False)] if backwards else [])
+    keys += [(VK_TAB, False), (VK_TAB, True)]
+    keys += ([(VK_SHIFT, True)] if backwards else []) + [(VK_CONTROL, True)]
+    _send_keys(keys)
+    deadline = time.monotonic() + TAB_WAIT_S
+    while time.monotonic() < deadline and window_title(hwnd) == before:
+        time.sleep(0.02)
+
+
+def _find_tab(hwnd: int, topic: str) -> int | None:
+    """Cycles the window's tabs until the one titled `topic` is in front.
+    Returns how many tabs it moved forward, or None (back where it started)."""
+    start = window_title(hwnd)
+    for steps in range(1, MAX_TABS + 1):
+        _switch_tab(hwnd)
+        if get_foreground_window() != hwnd:
+            return None  # the user moved elsewhere; stop sending keys
+        if claude_topic(hwnd) == topic:
+            return steps
+        if window_title(hwnd) == start:
+            return None
+    return None
+
+
+def paste_into_window(text: str, hwnd: int, topic: str | None, press_enter: bool = False) -> bool:
+    """Pastes `text` into the Claude Code session `topic` living in `hwnd`,
+    even if the user is in another window or another tab of that terminal:
+    jumps there (cycling tabs if needed), pastes (and presses Enter), then
+    puts the tab and the focus back. `text` is left on the clipboard either
+    way, and nothing is typed anywhere unless that session is found."""
+    _set_clipboard_text(text)
+    if not hwnd or not topic or not user32.IsWindow(hwnd):
+        print("[diag] wake: no Claude Code window seen yet; text left on the clipboard")
+        return False
+    previous = get_foreground_window()
+    if previous != hwnd and not _focus(hwnd):
+        print(f"[diag] could not bring {_describe_window(hwnd)} to the front")
+        return False
+    _wait_modifiers_released()
+    moved = 0
+    if claude_topic(hwnd) != topic:
+        moved = _find_tab(hwnd, topic)
+        if moved is None:
+            print(f"[diag] wake: no tab titled {topic!r} in {_describe_window(hwnd)}; text left on the clipboard")
+            return False
+    ok = paste_text_if_focus_unchanged(text, hwnd, press_enter=press_enter)
+    time.sleep(ENTER_DELAY_S)
+    for _ in range(moved):
+        if get_foreground_window() != hwnd:
+            break
+        _switch_tab(hwnd, backwards=True)
+    if previous and previous != hwnd and user32.IsWindow(previous):
+        _focus(previous)
+    return ok

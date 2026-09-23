@@ -60,14 +60,16 @@ class ResidentTranscriber:
         seconds if it has to be uploaded to VRAM at that moment."""
         self._ensure_loaded()
 
-    def transcribe(self, audio, language: str | None = "es") -> str:
-        """language=None lets Whisper detect the language."""
+    def transcribe(self, audio, language: str | None = "es", use_prompt: bool = True) -> str:
+        """language=None lets Whisper detect the language. use_prompt=False
+        skips the vocabulary prompt (the wake word check: a prompt that says
+        "Claude" would nudge Whisper into hearing it)."""
         self._ensure_loaded()
         segments, _info = self._model.transcribe(
             audio,
             language=language,
             beam_size=BEAM_SIZE,
-            initial_prompt=self._initial_prompt or None,
+            initial_prompt=(self._initial_prompt or None) if use_prompt else None,
             vad_filter=True,
         )
         text = "".join(s.text for s in segments).strip()

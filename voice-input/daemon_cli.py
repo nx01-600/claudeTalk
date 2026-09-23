@@ -5,6 +5,9 @@ recording. It cuts either on sustained silence (configurable) or when the
 chord is tapped again (toggle, no need to hold it down). While recording,
 the floating pill (overlay.py) is shown; its gear opens settings.
 Esc during recording: cancels and discards.
+While talk mode is on and the "Oye Claude" toggle is set, saying the wake
+phrase starts a recording too (wake.py). That text always goes to the last
+window that showed Claude Code, even if the user is elsewhere by then.
 
 Start modes:
   daemon_cli.py          manual (the "app"): stays until turned off.
@@ -68,6 +71,7 @@ import icon
 import inject
 import overlay
 import sounds
+import wake
 from stt import ResidentTranscriber
 
 INITIAL_PROMPTS = {
@@ -81,14 +85,28 @@ INITIAL_PROMPTS = {
     ),
 }
 CLAUDE_CHECK_S = 5
-# Mic sensitivity -> (silence margin over the noise floor, fraction of the
-# loudest block below which sound counts as silence). Lower sensitivity
-# ignores more background talk (speakers, echo, other people).
-SENSITIVITY = {
-    "low": (5.0, 0.25),
-    "medium": (3.5, 0.12),
-    "high": (2.5, 0.05),
-}
+WAKE_START_TIMEOUT_MS = 6000  # after "Oye Claude", give up if nothing is said
+# Mic sensitivity (0..100 slider) -> (silence margin over the noise floor,
+# fraction of the speech level below which sound counts as silence), linearly
+# interpolated between these points. Lower sensitivity ignores more background
+# talk (speakers, echo, other people); higher picks up a soft voice.
+SENSITIVITY_POINTS = [
+    (0, 6.0, 0.30),
+    (25, 5.0, 0.25),
+    (50, 3.5, 0.12),
+    (75, 2.5, 0.05),
+    (100, 1.8, 0.02),
+]
+
+
+def _sensitivity(value) -> tuple[float, float]:
+    v = float(value) if isinstance(value, (int, float)) else 50.0
+    v = max(0.0, min(100.0, v))
+    for (x0, m0, r0), (x1, m1, r1) in zip(SENSITIVITY_POINTS, SENSITIVITY_POINTS[1:]):
+        if v <= x1:
+            t = (v - x0) / (x1 - x0)
+            return m0 + (m1 - m0) * t, r0 + (r1 - r0) * t
+    return SENSITIVITY_POINTS[-1][1], SENSITIVITY_POINTS[-1][2]
 
 config = cfg.Config()
 
@@ -125,21 +143,23 @@ def _language():
     return None if value == "auto" else value
 
 
-def _worker():
+def _worker(woken: bool = False):
     global state
     hwnd = inject.get_foreground_window()
+    target = last_claude_session
     bridge.recording_started.emit()
     if config.get("sound"):
         sounds.chime_start()
     print("[recording] speak now...")
     try:
-        margin, peak_ratio = SENSITIVITY.get(config.get("sensitivity"), SENSITIVITY["medium"])
+        margin, peak_ratio = _sensitivity(config.get("sensitivity"))
         pcm = audio.record_until_silence(
             should_cancel=_should_cancel,
             on_level=bridge.level_changed.emit,
             silence_hold_ms=int(config.get("silence_ms")),
             silence_margin=margin,
             peak_ratio=peak_ratio,
+            start_timeout_ms=WAKE_START_TIMEOUT_MS if woken else None,
         )
         pcm = audio.noise_gate(pcm, peak_ratio)
     except audio.RecordingCancelled:
@@ -164,7 +184,10 @@ def _worker():
     if not text:
         print("[empty] nothing to paste")
     else:
-        ok = inject.paste_text_if_focus_unchanged(text, hwnd, press_enter=bool(config.get("auto_enter")))
+        if woken:
+            ok = inject.paste_into_window(text, *target, press_enter=bool(config.get("auto_enter")))
+        else:
+            ok = inject.paste_text_if_focus_unchanged(text, hwnd, press_enter=bool(config.get("auto_enter")))
         if ok:
             print("[pasted]")
         else:
@@ -187,6 +210,51 @@ def _on_press():
         else:
             force_stop.set()
 
+
+# The last Claude Code session the user had in front, as (window, topic):
+# where a dictation started by "Oye Claude" is sent, wherever the focus is
+# by then. The topic tells the terminal's tabs apart.
+last_claude_session = (0, None)
+CLAUDE_WINDOW_POLL_MS = 500
+
+
+def _track_claude_window():
+    global last_claude_session
+    hwnd = inject.get_foreground_window()
+    topic = inject.claude_topic(hwnd)
+    if topic and (hwnd, topic) != last_claude_session:
+        last_claude_session = (hwnd, topic)
+        print(f"[wake] Claude session: {topic!r}")
+
+
+claude_window_timer = QTimer()
+claude_window_timer.timeout.connect(_track_claude_window)
+claude_window_timer.start(CLAUDE_WINDOW_POLL_MS)
+
+
+def _on_wake():
+    """Same as a first chord press, from the wake word listener's thread."""
+    global state
+    with state_lock:
+        if state != "idle":
+            return
+        state = "recording"
+    threading.Thread(target=_worker, kwargs={"woken": True}, daemon=True).start()
+
+
+def _busy() -> bool:
+    return state != "idle"
+
+
+wake_listener = wake.WakeListener(
+    transcriber,
+    on_wake=_on_wake,
+    should_listen=lambda: bool(config.get("wake_word")) and wake.talk_mode_on(),
+    is_busy=_busy,
+    get_margin=lambda: _sensitivity(config.get("sensitivity"))[0],
+    get_language=_language,
+)
+wake_listener.start()
 
 chord = hotkey.ChordHotkey(on_press=_on_press, keys=config.get("hotkey"))
 chord.start()
@@ -322,6 +390,7 @@ if args.auto:
     watchdog.start(CLAUDE_CHECK_S * 1000)
 
 app.aboutToQuit.connect(chord.stop)
+app.aboutToQuit.connect(wake_listener.stop)
 
 # Qt's native loop doesn't give the Python interpreter a chance to handle
 # signals (Ctrl+C) while there are no window events; this harmless timer

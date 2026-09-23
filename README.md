@@ -20,7 +20,7 @@ Dictation comes with a floating *liquid glass* overlay (black and white, light o
 | **Liquid glass overlay** | Floating pill made of live glass: what is behind it shows through blurred and in color, with edge refraction and a specular rim. Live volume bars and a settings gear. Never steals focus. |
 | **Live settings** | Activation keys (captures the chord you press), silence cutoff, mic sensitivity, sound, send with Enter, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
 | **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when the last interactive Claude Code session ends (the `SessionStart` hook registers each session; headless `claude -p` subprocesses spawned by other plugins are ignored). You can also launch it by hand as an app (it sits in the tray). |
-| **Claude's voice (TTS)** | `/voice-on` and `/voice-off`. Reads the latest response, skips code blocks, doesn't block the terminal. |
+| **Talk mode (TTS)** | `/talk` turns it on and off. Claude answers for a listener: short answers are read aloud, long ones get a spoken summary while the detail stays on screen. |
 
 ## Requirements
 
@@ -91,19 +91,24 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly.
 - By hand: the **claudeTalk** Start Menu app (see [Installation](#3-start-menu-app-optional)), the desktop **claudeTalk Dictation** shortcut, `wscript scripts\dictation.vbs`, or `/dictation` inside Claude Code. Launched by hand, it stays running (even through Claude Code sessions opening and closing) until you turn it off.
 - Turning it off: gear → **Turn off dictation**, or tray → **Turn off dictation**. Always asks for confirmation.
 
-### Claude's voice (TTS)
+### Talk mode (Claude's voice)
 
-- `/voice-on` turns it on, `/voice-off` turns it off and cuts the audio, `/voice` shows the status.
-- Per-project configuration in `.claude/claudetalk.local.md`:
-
-```yaml
----
-enabled: true
-voice: es-CO-GonzaloNeural  # any voice from `edge-tts --list-voices`
-rate: "+0%"
-skip_code: true
----
-```
+- `/talk` turns it on and stays on until you run `/talk` again. Saying it in your own words also works ("háblame", "ya no hables"): Claude invokes the skill itself. `/voice` shows the status.
+- While it is on, each prompt reminds Claude that you are listening. Claude then:
+  - writes short answers once, in plain sentences, and they are read aloud (no double generation);
+  - for long or technical answers, speaks a 1-2 sentence summary ("I left the three steps on screen") with the `say` tool and writes the detail. The `say` call stays folded in the transcript: **Ctrl+O** shows what was said;
+  - can speak while it works ("let me check the hook") because `say` plays in the background.
+- A new prompt cuts whatever Claude is saying.
+- Safety net: if Claude writes something long without speaking, the `Stop` hook only says "I left the answer on screen".
+- The first time Claude uses `say`, Claude Code asks for permission; pick "don't ask again" (or add `mcp__plugin_claudeTalk_voice__say` to `permissions.allow`).
+- **Voice and speed**: open the dictation gear. Next to the dictation settings, a **Claude's voice** panel lets you pick the voice (Salomé, Gonzalo, Dalia, Jorge) and the speed. Each change plays a sample. The choice is global (`%APPDATA%\claudeTalk\dictation.json`).
+- **"Oye Claude" (hands-free)**: turn on **Start with "Oye Claude"** in the same panel. While talk mode is on, saying "Oye Claude" starts a dictation, as if you had pressed the keys: wait for the chime, then speak. If nothing is said within 6 seconds, it gives up.
+  - The text always goes to the **last Claude Code session you had in front**, even if you are in another app or another tab by then. The daemon jumps to that window, finds the tab by its title (Claude Code titles it "✳ topic"; it cycles tabs with Ctrl+Tab), pastes and sends, then puts the tab and your focus back. If that session can't be found, the text stays on the clipboard.
+  - It only listens while talk mode is on (`/talk` writes `%APPDATA%\claudeTalk\talk-active.flag`). With talk mode off, the mic is closed.
+  - The detector is the Whisper model already loaded for dictation: no extra download. Short sound bursts are transcribed and checked for the phrase; silence costs nothing. On CPU-only machines each burst takes longer.
+  - It goes deaf while Claude is speaking, so its own voice can't trigger it. Background music or video may still cause an occasional false start (it cancels itself after 6 seconds).
+- The on/off switch is per project, in `.claude/claudetalk.local.md` (`enabled`, `skip_code`).
+- Voices come from edge-tts: Microsoft Edge's "Read aloud" service. It's free and needs no key or account, but it isn't an official API, so Microsoft could limit or change it.
 
 ## How it works
 
@@ -129,11 +134,16 @@ Decisions worth knowing (all explained in the docstrings):
 ```
 .claude-plugin/     plugin and local marketplace manifest
 assets/claudetalk.ico  Start Menu / tray icon, generated by scripts/make-icon.py
-commands/           /voice-on /voice-off /voice /dictation
-hooks/hooks.json    Stop → speak.ps1 (TTS)   SessionStart → voice-daemon-ensure.ps1
+commands/           /voice /dictation
+skills/talk/        /talk: turns talk mode on and off
+.mcp.json           `voice` MCP server → say-server.ps1 (the `say` tool)
+hooks/hooks.json    UserPromptSubmit → talk-context.ps1   Stop → speak.ps1   SessionStart → voice-daemon-ensure.ps1
 scripts/
-  speak.ps1               TTS: transcript → edge-tts → ffplay
-  voice-toggle.ps1        voice mode status
+  talk-common.ps1         shared helpers: state file, speech queue, cutting audio
+  say-server.ps1          MCP server with the `say` tool (queues a phrase)
+  talk-context.ps1        cuts audio on each prompt, injects the talk mode rules
+  speak.ps1               end of turn: picks what to speak; -Worker plays the queue (edge-tts | ffplay)
+  voice-toggle.ps1        talk mode on/off/toggle/status
   setup-voice.ps1         installs dictation (venv + dependencies + shortcut)
   voice-daemon-ensure.ps1 launches the daemon in --auto mode if not already running
   dictation.vbs           manual launcher without a console window (the "app")

@@ -1,5 +1,5 @@
 {
-  "description": "claudeTalk: when Claude finishes responding, reads the response out loud if voice mode is on; when a session starts, leaves voice dictation running (if installed).",
+  "description": "claudeTalk: talk mode. On each prompt, cuts Claude's audio and (if talk mode is on) reminds Claude it is being listened to; when Claude finishes, speaks the short answer; when a session starts, leaves voice dictation running (if installed).",
   "hooks": {
     "Stop": [
       {
@@ -18,6 +18,17 @@
           {
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/scripts/voice-daemon-ensure.ps1\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/scripts/talk-context.ps1\"",
             "timeout": 10
           }
         ]

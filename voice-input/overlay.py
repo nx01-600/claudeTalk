@@ -32,6 +32,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 import config as cfg
 import hotkey as hk
+import tts
 
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
@@ -542,12 +543,15 @@ class SettingsPanel(_GlassWindow):
     quit_requested = Signal()
     closed = Signal()
 
-    def __init__(self, style: Style):
+    TITLE = "Dictation"
+
+    def __init__(self, style: Style, companion: "SettingsPanel | None" = None):
         super().__init__(style)
         self.config = style.config
+        self._companion = companion  # panel opened to the right of this one
         self._hover = None  # (row_index, part)
         self._pressed = None
-        self._dragging_slider = False
+        self._dragging_slider = None  # row index of the slider being dragged
         self._confirming_quit = False
         self._capturing = False
         self._capture_acc: set[int] = set()
@@ -580,7 +584,7 @@ class SettingsPanel(_GlassWindow):
             ("group", "Activation", None, None),
             ("hotkey", "Keys", "hotkey", None),
             ("segment", "Silence cutoff", "silence_ms", [(1000, "1 s"), (2000, "2 s"), (3000, "3 s")]),
-            ("segment", "Mic sensitivity", "sensitivity", [("low", "Low"), ("medium", "Medium"), ("high", "High")]),
+            ("slider", "Mic sensitivity", "sensitivity", None),
             ("toggle", "Sound on start", "sound", None),
             ("toggle", "Send with Enter", "auto_enter", None),
             ("group", "Appearance", None, None),
@@ -593,6 +597,20 @@ class SettingsPanel(_GlassWindow):
             ("danger", "Turn off dictation", None, None),
         ]
         return rows
+
+    def _open_companion(self):
+        if self._companion is None:
+            return
+        screen = QApplication.primaryScreen().availableGeometry()
+        gap = 10
+        x = self.x() + PANEL_W + gap
+        if x + PANEL_W + INSET > screen.right() - 8:
+            x = self.x() - PANEL_W - gap  # no room on the right: go left
+        # line up the bottoms (or the tops when the pill sits at the top)
+        y = self._anchor_y
+        if not self.style_.top:
+            y += self._content_height() - self._companion._content_height()
+        self._companion._open_at(x, y)
 
     def _row_rects(self):
         """Returns [(index, QRectF, group_rect_or_None)] for visible rows;
@@ -636,12 +654,14 @@ class SettingsPanel(_GlassWindow):
             y = int(visible.top() - 6 - INSET - self._content_height())
         x = max(screen.x() + 8 - INSET, min(x, screen.right() - PANEL_W - 8 - INSET))
         self._open_at(x, y)
+        self._open_companion()
 
     def open_standalone(self):
         screen = QApplication.primaryScreen().availableGeometry()
         x = screen.x() + (screen.width() - self.width()) // 2
         y = screen.y() + screen.height() - self.height() - 96
         self._open_at(x, y)
+        self._open_companion()
 
     def _open_at(self, x: int, y: int):
         self._confirming_quit = False
@@ -666,6 +686,8 @@ class SettingsPanel(_GlassWindow):
         if not self.isVisible() or self._closing:
             return
         self._end_capture(commit=False)
+        if self._companion is not None:
+            self._companion.close_panel()
         self._closing = True
         self._anim.stop()
         self._anim.setDuration(130)
@@ -688,7 +710,7 @@ class SettingsPanel(_GlassWindow):
 
     def _tick(self):
         self._phase += 0.12
-        for key in ("sound", "auto_enter"):
+        for key in (row[2] for row in self._rows if row[0] == "toggle"):
             target = 1.0 if self.config.get(key) else 0.0
             self._toggle_t[key] = _lerp(self._toggle_t.get(key, target), target, 0.3)
         self.update()
@@ -806,7 +828,7 @@ class SettingsPanel(_GlassWindow):
 
     def mouseMoveEvent(self, event):
         pos = self._local(event)
-        if self._dragging_slider:
+        if self._dragging_slider is not None:
             self._apply_slider(pos)
             return
         hit = self._hit(pos)
@@ -835,7 +857,7 @@ class SettingsPanel(_GlassWindow):
         elif kind == "segment" and part.startswith("seg:"):
             self._set(key, opts[int(part[4:])][0])
         elif kind == "slider":
-            self._dragging_slider = True
+            self._dragging_slider = index
             self._apply_slider(pos)
         elif kind == "hotkey":
             if not self._capturing:
@@ -851,18 +873,18 @@ class SettingsPanel(_GlassWindow):
         self.update()
 
     def mouseReleaseEvent(self, event):
-        self._dragging_slider = False
+        self._dragging_slider = None
 
     def _apply_slider(self, pos):
-        for i, row in enumerate(self._rows):
-            if row[0] == "slider":
-                rect = self._rect_of(i)
-                control = self._control_rect(i, rect)
-                t = (pos.x() - control.left() - SLIDER_KNOB_R) / (control.width() - 2 * SLIDER_KNOB_R)
-                value = int(round(max(0.0, min(1.0, t)) * 100))
-                if value != self.config.get(row[2]):
-                    self._set(row[2], value)
-                return
+        i = self._dragging_slider
+        if i is None:
+            return
+        key = self._rows[i][2]
+        control = self._control_rect(i, self._rect_of(i))
+        t = (pos.x() - control.left() - SLIDER_KNOB_R) / (control.width() - 2 * SLIDER_KNOB_R)
+        value = int(round(max(0.0, min(1.0, t)) * 100))
+        if value != self.config.get(key):
+            self._set(key, value)
 
     def _set(self, key: str, value):
         self.config.set(key, value)
@@ -889,7 +911,7 @@ class SettingsPanel(_GlassWindow):
         title_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(title_font)
         painter.setPen(st.text())
-        painter.drawText(QRectF(PAD + 4, PAD, 200, TITLE_H - 8), Qt.AlignmentFlag.AlignVCenter, "Dictation")
+        painter.drawText(QRectF(PAD + 4, PAD, 200, TITLE_H - 8), Qt.AlignmentFlag.AlignVCenter, self.TITLE)
         self._paint_close(painter)
 
         items, _ = self._row_rects()
@@ -1013,7 +1035,8 @@ class SettingsPanel(_GlassWindow):
         filled = QPainterPath()
         filled.addRoundedRect(QRectF(x0, cy - 2, max(4.0, kx - x0), 4), 2, 2)
         painter.fillPath(filled, st.fg(225))
-        knob_r = SLIDER_KNOB_R + (1.5 if (hovered or self._dragging_slider) else 0)
+        dragging = self._dragging_slider is not None and self._rows[self._dragging_slider][2] == key
+        knob_r = SLIDER_KNOB_R + (1.5 if (hovered or dragging) else 0)
         knob = QPainterPath()
         knob.addEllipse(QPointF(kx, cy), knob_r, knob_r)
         painter.fillPath(knob, QColor(255, 255, 255))
@@ -1068,6 +1091,36 @@ class SettingsPanel(_GlassWindow):
         painter.drawText(confirm, Qt.AlignmentFlag.AlignCenter, "Turn off")
 
 
+class VoicePanel(SettingsPanel):
+    """Claude's voice (talk mode): which neural voice and how fast. Opens
+    next to the dictation panel. Every change plays a sample right away."""
+
+    TITLE = "Claude's voice"
+
+    def _build_rows(self):
+        return [
+            ("group", "Talk mode", None, None),
+            (
+                "segment",
+                "Voice",
+                "tts_voice",
+                [
+                    ("es-CO-SalomeNeural", "Salomé"),
+                    ("es-CO-GonzaloNeural", "Gonzalo"),
+                    ("es-MX-DaliaNeural", "Dalia"),
+                    ("es-MX-JorgeNeural", "Jorge"),
+                ],
+            ),
+            ("segment", "Speed", "tts_rate", [("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")]),
+            ("toggle", "Start with “Oye Claude”", "wake_word", None),
+        ]
+
+    def _set(self, key: str, value):
+        super()._set(key, value)
+        if key in ("tts_voice", "tts_rate"):
+            tts.preview(self.config.get("tts_voice"), self.config.get("tts_rate"))
+
+
 # --- bridge with the daemon ------------------------------------------------------
 
 
@@ -1097,7 +1150,7 @@ def create_app_and_overlay(config: cfg.Config):
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     style = Style(config)
-    panel = SettingsPanel(style)
+    panel = SettingsPanel(style, companion=VoicePanel(style))
     overlay = RecordingOverlay(style, panel)
     bridge = OverlayBridge(overlay, panel)
     return app, bridge
