@@ -69,7 +69,7 @@ Adds a **claudeTalk** shortcut to the Start Menu, with the same icon shown in th
 
 1. Focus the window where you want the text (the Claude Code terminal, an editor, whatever).
 2. Tap **Ctrl + Shift + Space**. A soft chime plays and the pill appears.
-3. Talk. Once you stop for 2 seconds (or tap the chord again) it transcribes and pastes.
+3. Talk. Once you stop for 2 seconds (or tap the chord again) it transcribes and pastes. The pill stays up while it transcribes (the bars ripple), then turns into a green check when the text was pasted, or an amber "!" when it was only left on the clipboard, and fades out.
 
 If you switched windows in the meantime, it pastes nothing: the text stays on the clipboard for `Ctrl+V`.
 
@@ -103,10 +103,12 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Clau
 - The first time Claude uses `say`, Claude Code asks for permission; pick "don't ask again" (or add `mcp__plugin_claudeTalk_voice__say` to `permissions.allow`).
 - **Voice and speed**: open the dictation gear. Next to the dictation settings, a **Claude's voice** panel lets you pick the voice (Salomé, Gonzalo, Dalia, Jorge) and the speed. Each change plays a sample. The choice is global (`%APPDATA%\claudeTalk\dictation.json`). You can also just ask Claude ("cambia a la voz de Salomé", "habla más rápido", "ponle 5 segundos de silencio"): the talk skill edits that file and the dictation app reloads it within a second.
 - **"Oye Claude" (hands-free)**: turn on **Start with "Oye Claude"** in the same panel. While talk mode is on, saying "Oye Claude" starts a dictation, as if you had pressed the keys: wait for the chime, then speak. If nothing is said within 6 seconds, it gives up.
-  - The text always goes to the **last Claude Code session you had in front**, even if you are in another app or another tab by then. The daemon jumps to that window, finds the tab by its title (Claude Code titles it "✳ topic"; it cycles tabs with Ctrl+Tab), pastes and sends, then puts the tab and your focus back. If that session can't be found, the text stays on the clipboard.
+  - The text always goes to the **last Claude Code session you had in front**, even if you are in another app or another tab by then. The daemon jumps to that window, finds the tab by its title (Claude Code titles it "✳ topic"; it cycles tabs with Ctrl+Tab), pastes and sends, then puts the tab and your focus back. The terminal is made fully transparent while this happens, so it never pops up over what you are doing; the pill's green check tells you it arrived. If that session can't be found, the text stays on the clipboard.
   - It only listens while talk mode is on (`/talk` writes `%APPDATA%\claudeTalk\talk-active.flag`). With talk mode off, the mic is closed.
   - The detector is the Whisper model already loaded for dictation: no extra download. Short sound bursts are transcribed and checked for the phrase; silence costs nothing. On CPU-only machines each burst takes longer.
   - It goes deaf while Claude is speaking, so its own voice can't trigger it. Background music or video may still cause an occasional false start (it cancels itself after 6 seconds).
+- **Spoken messages are marked**: every dictation pasted into Claude Code starts with 🎙️, so Claude knows it was spoken (and reads past transcription slips). Turn on **Speak only when I talk** in the same panel and talk mode answers out loud only those: a message you type gets a silent, text-only answer, without turning talk mode off.
+- **Claude lowers its voice while you dictate**: if Claude is still talking when a recording starts, its volume dips (the ffplay player's volume in the Windows mixer) until the recording ends, and any phrase that starts meanwhile is read a bit slower. That keeps the mic from writing Claude's words into your message.
 - The on/off switch is per project, in `.claude/claudetalk.local.md` (`enabled`, `skip_code`).
 - Voices come from edge-tts: Microsoft Edge's "Read aloud" service. It's free and needs no key or account, but it isn't an official API, so Microsoft could limit or change it.
 

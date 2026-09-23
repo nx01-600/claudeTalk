@@ -27,6 +27,7 @@ Settings (set <setting> <value>):
   sound        on | off   (chime when recording starts)
   enter        on | off   (press Enter after pasting = send the message)
   wake         on | off   (start dictating by saying "Oye Claude")
+  spoken       on | off   (talk mode answers out loud only dictated messages)
   share        on | off   (overlay visible in screen sharing)
   theme        light | dark
   glass        0 to 100   (glass effect intensity)
@@ -129,6 +130,7 @@ function Resolve-Setting($name, $v) {
     if ($n -in "sound", "sonido") { $b = ConvertTo-Bool $v; return @("sound", $b, "start chime $(Get-OnOff $b)") }
     if ($n -in "enter", "auto_enter", "send") { $b = ConvertTo-Bool $v; return @("auto_enter", $b, "send with Enter $(Get-OnOff $b)") }
     if ($n -in "wake", "wake_word", "oye") { $b = ConvertTo-Bool $v; return @("wake_word", $b, "Oye Claude $(Get-OnOff $b)") }
+    if ($n -in "spoken", "speak_only_spoken", "solo_voz") { $b = ConvertTo-Bool $v; return @("speak_only_spoken", $b, "speak only to dictated messages $(Get-OnOff $b)") }
     if ($n -in "share", "show_in_capture", "capture") { $b = ConvertTo-Bool $v; return @("show_in_capture", $b, "visible in screen share $(Get-OnOff $b)") }
     if ($n -in "theme", "tema") {
         if ($plain -match '^(light|claro|blanco)') { return @("theme", "light", "light theme") }

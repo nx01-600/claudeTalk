@@ -24,6 +24,7 @@ DEFAULTS = {
     "sound": True,
     "auto_enter": False,  # press Enter after pasting (sends the message)
     "wake_word": False,  # while talk mode is on, "Oye Claude" starts a dictation (wake.py)
+    "speak_only_spoken": False,  # talk mode answers out loud only messages that were dictated
     "theme": "light",  # light | dark
     "glass": 60,  # 0..100, glass effect intensity (blur + transparency)
     "position": "bottom",  # bottom | top

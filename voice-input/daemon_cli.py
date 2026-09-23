@@ -68,6 +68,7 @@ import audio
 import config as cfg
 import hotkey
 import icon
+import duck
 import inject
 import overlay
 import sounds
@@ -138,9 +139,17 @@ def _should_cancel():
     return False
 
 
+# Prefix of every dictation sent to Claude Code. scripts/talk-context.ps1 and
+# scripts/speak.ps1 look for it: keep the three in sync.
+SPOKEN_MARK = "🎙️ "
+
+
 def _language():
     value = config.get("language")
     return None if value == "auto" else value
+
+
+ducker = duck.Ducker()
 
 
 def _worker(woken: bool = False):
@@ -148,6 +157,7 @@ def _worker(woken: bool = False):
     hwnd = inject.get_foreground_window()
     target = last_claude_session
     bridge.recording_started.emit()
+    ducker.start()
     if config.get("sound"):
         sounds.chime_start()
     print("[recording] speak now...")
@@ -164,9 +174,11 @@ def _worker(woken: bool = False):
         pcm = audio.noise_gate(pcm, peak_ratio)
     except audio.RecordingCancelled:
         pcm = None
-    bridge.recording_stopped.emit()
+    finally:
+        ducker.stop()
 
     if cancel_flag.is_set() or pcm is None or len(pcm) == 0:
+        bridge.recording_stopped.emit()
         print("[cancelled] discarded")
         with state_lock:
             state = "idle"
@@ -174,6 +186,8 @@ def _worker(woken: bool = False):
         force_stop.clear()
         return
 
+    # The pill stays up while transcribing and pasting, then shows how it went.
+    bridge.transcribing.emit()
     print(f"[transcribing] {len(pcm) / audio.SAMPLE_RATE:.1f}s of audio")
     t0 = time.time()
     transcriber._initial_prompt = INITIAL_PROMPTS.get(config.get("language"), "")
@@ -182,12 +196,17 @@ def _worker(woken: bool = False):
     print(f"[text] {text!r} ({t1 - t0:.2f}s)")
 
     if not text:
+        bridge.recording_stopped.emit()
         print("[empty] nothing to paste")
     else:
+        if woken or inject.is_claude_window(hwnd):
+            # Tells Claude (and the talk hooks) this prompt was spoken, not typed.
+            text = SPOKEN_MARK + text
         if woken:
             ok = inject.paste_into_window(text, *target, press_enter=bool(config.get("auto_enter")))
         else:
             ok = inject.paste_text_if_focus_unchanged(text, hwnd, press_enter=bool(config.get("auto_enter")))
+        bridge.finished.emit(ok)
         if ok:
             print("[pasted]")
         else:

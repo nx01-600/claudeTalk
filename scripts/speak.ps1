@@ -34,13 +34,20 @@ function Invoke-Item($file) {
             Write-TalkLog "worker: edge or ffplay not found (edge=$edge ffplay=$ffplay)"
             return
         }
+        # The user is dictating (voice-input/duck.py): that phrase goes a bit
+        # slower, on top of the lower volume the daemon applies.
+        $rate = $item.rate
+        if (Test-Path (Join-Path $env:APPDATA "claudeTalk\ducking.flag")) {
+            $pct = if ($rate -match '^([+-]\d+)%$') { [int]$Matches[1] } else { 0 }
+            $rate = "{0:+0;-0}%" -f [math]::Max(-50, $pct - 15)
+        }
         $txt = Join-Path $env:TEMP ("claudetalk_txt_" + [guid]::NewGuid().ToString("N") + ".txt")
         [IO.File]::WriteAllText($txt, $item.text, (New-Object Text.UTF8Encoding($false)))
         try {
             # Cut while we were preparing: Stop-Speech deleted the item.
             if (-not (Test-Path $file.FullName)) { return }
             $line = '""{0}" --voice {1} --rate={2} --file "{3}" --write-media - 2>nul | "{4}" -nodisp -autoexit -loglevel quiet -i -"' -f `
-                $edge, $item.voice, $item.rate, $txt, $ffplay
+                $edge, $item.voice, $rate, $txt, $ffplay
             $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/d /s /c $line" -WindowStyle Hidden -PassThru
             Set-Content -Path $script:TalkPidFile -Value $p.Id
             $p.WaitForExit()
@@ -116,15 +123,17 @@ function Test-IsPrompt($obj) {
 function Read-Turn($transcript) {
     $lines = Get-Content -Encoding UTF8 $transcript
     $turn = New-Object System.Collections.Generic.List[object]
+    $prompt = $null
     for ($i = $lines.Count - 1; $i -ge 0; $i--) {
         $line = $lines[$i]
         if (-not $line -or -not $line.Trim()) { continue }
         try { $obj = $line | ConvertFrom-Json } catch { continue }
-        if (Test-IsPrompt $obj) { break }
+        if (Test-IsPrompt $obj) { $prompt = $obj.message.content; break }
         if ($obj.isSidechain) { continue }
         if ($obj.message -and $obj.message.role -eq "assistant") { $turn.Insert(0, $obj) }
     }
-    $info = @{ spoke = $false; workAfterSay = $false; textAfter = "" }
+    if ($prompt -isnot [string]) { $prompt = (@($prompt) | Where-Object { $_.type -eq "text" } | ForEach-Object { $_.text }) -join "`n" }
+    $info = @{ spoke = $false; workAfterSay = $false; textAfter = ""; spoken = (Test-IsSpoken $prompt) }
     foreach ($obj in $turn) {
         foreach ($block in $obj.message.content) {
             if (Test-IsSay $block) {
@@ -165,6 +174,8 @@ try {
         if ($found) { break }
         Start-Sleep -Milliseconds 150
     }
+    # "Speak only when I talk": a typed prompt gets a silent answer.
+    if ($state.onlySpoken -and -not $turnInfo.spoken) { exit 0 }
     $spoke = $turnInfo.spoke
     $workAfterSay = $turnInfo.workAfterSay
     $textAfter = $turnInfo.textAfter

@@ -102,6 +102,18 @@ class Style:
     def surface(self, alpha: int) -> QColor:
         return QColor(0, 0, 0, alpha) if self.dark else QColor(255, 255, 255, alpha)
 
+    def glyph(self, alpha: int) -> QColor:
+        """The pill's bars and gear: pure white on both themes."""
+        return QColor(255, 255, 255, alpha)
+
+    def pill_veil(self) -> QColor:
+        """Veil over the pill's backdrop. The light theme gets a cool
+        neutral gray instead of a white wash, so the white bars read on
+        any background, bright pages included."""
+        if self.dark:
+            return self.surface(self.tint_alpha())
+        return QColor(96, 100, 110, int(round(_lerp(165, 120, self.glass))))
+
     def text(self, primary: bool = True) -> QColor:
         """Text colors: pure black on the light theme (gray text on glass
         reads washed out), near-white on the dark theme."""
@@ -195,7 +207,9 @@ LENS_BAND_PX = 9
 LENS_SCALE = 1.07
 
 
-def _paint_glass(painter: QPainter, shape: QPainterPath, bg: QPixmap | None, rect: QRectF, radius: float, style: Style):
+def _paint_glass(
+    painter: QPainter, shape: QPainterPath, bg: QPixmap | None, rect: QRectF, radius: float, style: Style, veil: QColor | None = None
+):
     """Liquid glass, layer by layer: outer shadow, live blurred backdrop, tint,
     edge lensing (the backdrop slightly magnified inside the outer band, like
     light bending at the edge of thick glass), a thin bright rim with a faint
@@ -204,7 +218,6 @@ def _paint_glass(painter: QPainter, shape: QPainterPath, bg: QPixmap | None, rec
     painter.setClipPath(shape)
     if bg is not None:
         painter.drawPixmap(0, 0, bg)
-        painter.fillPath(shape, style.surface(style.tint_alpha()))
         inner = QPainterPath()
         inner.addRoundedRect(
             rect.adjusted(LENS_BAND_PX, LENS_BAND_PX, -LENS_BAND_PX, -LENS_BAND_PX), radius - LENS_BAND_PX, radius - LENS_BAND_PX
@@ -219,6 +232,9 @@ def _paint_glass(painter: QPainter, shape: QPainterPath, bg: QPixmap | None, rec
         painter.drawPixmap(0, 0, bg)
         painter.restore()
         painter.setClipPath(shape)
+        # Veil after the lens band, so the band is tinted like the rest and
+        # doesn't show as a lighter/darker ring.
+        painter.fillPath(shape, veil or style.surface(style.tint_alpha()))
     else:
         painter.fillPath(shape, style.surface(235))
     painter.setClipping(False)
@@ -310,6 +326,17 @@ GEAR_HIT_R = 14
 SHOW_MS = 220
 HIDE_MS = 170
 
+# After the text is sent: the bars fold into a badge (green check when it
+# was pasted, amber "!" when it was only left on the clipboard), which holds
+# for a moment before the pill fades out.
+BADGE_R = 14.0
+BADGE_IN_MS = 260
+CHECK_DRAW_MS = 240
+BADGE_HOLD_MS = 650
+BADGE_OK = QColor(52, 199, 89)
+BADGE_WARN = QColor(255, 159, 10)
+BUSY_WAVE_SPEED = 7.0  # rad/s of the "transcribing" wave running through the bars
+
 
 def _gear_path() -> QPainterPath:
     """Circular body + rounded teeth (boolean union) minus the central hole:
@@ -348,6 +375,10 @@ class RecordingOverlay(_GlassWindow):
         self._gear_angle = 0.0
         self._gear_angle_target = 0.0
         self._closing = False
+        self._phase = "record"  # record | busy | done
+        self._phase_t0 = 0.0
+        self._ok = True
+        self._phase_token = 0
 
         self._frame = QTimer(self)
         self._frame.setInterval(FRAME_MS)
@@ -382,6 +413,7 @@ class RecordingOverlay(_GlassWindow):
     # --- entry / exit ---------------------------------------------------
 
     def fade_in(self):
+        self._set_phase("record")
         self._closing = False
         self._hide_pending = False
         self._levels_target = [0.0] * BAR_COUNT
@@ -415,6 +447,33 @@ class RecordingOverlay(_GlassWindow):
         self._anim.setEndValue(0.0)
         self._anim.start()
 
+    def _set_phase(self, phase: str):
+        self._phase = phase
+        self._phase_t0 = time.monotonic()
+        self._phase_token += 1
+
+    def show_busy(self):
+        """Recording over, transcribing and pasting: the pill stays up."""
+        if self.isVisible() and not self._closing:
+            self._set_phase("busy")
+
+    def show_result(self, ok: bool):
+        """The text was sent (ok) or only left on the clipboard: show the
+        badge, then fade out."""
+        if not self.isVisible() or self._closing:
+            return
+        self._ok = ok
+        self._set_phase("done")
+        token = self._phase_token
+        QTimer.singleShot(BADGE_IN_MS + CHECK_DRAW_MS + BADGE_HOLD_MS, lambda: self._badge_done(token))
+
+    def _badge_done(self, token: int):
+        if token == self._phase_token:
+            self.fade_out()
+
+    def _phase_ms(self) -> float:
+        return (time.monotonic() - self._phase_t0) * 1000.0
+
     def _on_progress(self, value):
         self.setWindowOpacity(float(value))
         self._slide = 1.0 - float(value)
@@ -446,6 +505,9 @@ class RecordingOverlay(_GlassWindow):
         self._levels_target = self._levels_target[1:] + [normalized]
 
     def _tick(self):
+        if self._phase == "busy":
+            t = time.monotonic() * BUSY_WAVE_SPEED
+            self._levels_target = [0.08 + 0.3 * max(0.0, math.sin(t - i * 0.9)) ** 2 for i in range(BAR_COUNT)]
         for i in range(BAR_COUNT):
             self._levels_shown[i] = _lerp(self._levels_shown[i], self._levels_target[i], 0.35)
         self._gear_hover_t = _lerp(self._gear_hover_t, 1.0 if self._gear_hover else 0.0, 0.25)
@@ -493,36 +555,90 @@ class RecordingOverlay(_GlassWindow):
         rect = QRectF(float(INSET), top, float(WIDTH), float(HEIGHT))
         pill = QPainterPath()
         pill.addRoundedRect(rect, radius, radius)
-        _paint_glass(painter, pill, self._bg_pixmap, rect, radius, self.style_)
+        _paint_glass(painter, pill, self._bg_pixmap, rect, radius, self.style_, veil=self.style_.pill_veil())
 
-        self._paint_bars(painter, top)
+        if self._phase == "done":
+            fold = QEasingCurve(QEasingCurve.Type.InCubic).valueForProgress(min(1.0, self._phase_ms() / (BADGE_IN_MS * 0.6)))
+            if fold < 1.0:
+                self._paint_bars(painter, top, fold)
+            self._paint_badge(painter, top)
+        else:
+            self._paint_bars(painter, top)
         self._paint_gear(painter)
 
-    def _paint_bars(self, painter: QPainter, top: float):
+    def _bars_center_x(self) -> float:
+        return INSET + BARS_AREA_WIDTH / 2
+
+    def _paint_bars(self, painter: QPainter, top: float, fold: float = 0.0):
+        """fold 0..1: the bars slide into the center and shrink (on their way
+        to becoming the badge)."""
         total_w = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
         start_x = INSET + (BARS_AREA_WIDTH - total_w) / 2
+        center_x = self._bars_center_x()
         center_y = top + HEIGHT / 2
         painter.setPen(Qt.PenStyle.NoPen)
         for i in range(BAR_COUNT):
-            level = self._levels_shown[i]
+            level = self._levels_shown[i] * (1.0 - fold)
             bar_h = BAR_MIN_HEIGHT + level * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT)
-            x = start_x + i * (BAR_WIDTH + BAR_GAP)
+            x = _lerp(start_x + i * (BAR_WIDTH + BAR_GAP), center_x - BAR_WIDTH / 2, fold)
             y = center_y - bar_h / 2
             bar = QPainterPath()
             bar.addRoundedRect(x, y, float(BAR_WIDTH), bar_h, BAR_WIDTH / 2, BAR_WIDTH / 2)
-            alpha = int(150 + 100 * min(1.0, level * 1.6))
-            painter.fillPath(bar, self.style_.fg(alpha))
+            alpha = int((170 + 85 * min(1.0, level * 1.6)) * (1.0 - fold))
+            painter.fillPath(bar, self.style_.glyph(alpha))
+
+    def _paint_badge(self, painter: QPainter, top: float):
+        """Colored disc that pops in, then a white check (or "!") drawn
+        stroke by stroke."""
+        ms = self._phase_ms()
+        grow = QEasingCurve(QEasingCurve.Type.OutBack).valueForProgress(min(1.0, ms / BADGE_IN_MS))
+        if grow <= 0.0:
+            return
+        c = QPointF(self._bars_center_x(), top + HEIGHT / 2)
+        r = BADGE_R * grow
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(BADGE_OK if self._ok else BADGE_WARN)
+        painter.drawEllipse(c, r, r)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        draw = QEasingCurve(QEasingCurve.Type.OutCubic).valueForProgress(
+            max(0.0, min(1.0, (ms - BADGE_IN_MS * 0.55) / CHECK_DRAW_MS))
+        )
+        if draw <= 0.0:
+            return
+        pen = QPen(QColor(255, 255, 255), 2.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        if self._ok:
+            points = [QPointF(-5.8, 0.4), QPointF(-1.9, 4.3), QPointF(6.0, -4.4)]
+            lengths = [math.dist((a.x(), a.y()), (b.x(), b.y())) for a, b in zip(points, points[1:])]
+            left = draw * sum(lengths)
+            path = QPainterPath(c + points[0])
+            for a, b, seg in zip(points, points[1:], lengths):
+                path.lineTo(c + a + (b - a) * min(1.0, left / seg))
+                left -= seg
+                if left <= 0:
+                    break
+            painter.drawPath(path)
+        else:
+            painter.drawLine(c + QPointF(0, -6.0), c + QPointF(0, -6.0 + 7.5 * draw))
+            if draw >= 1.0:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(255, 255, 255))
+                painter.drawEllipse(c + QPointF(0, 5.2), 1.6, 1.6)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
 
     def _paint_gear(self, painter: QPainter):
         c = self._gear_center()
-        alpha = int(115 + 120 * self._gear_hover_t)
+        alpha = int(150 + 105 * self._gear_hover_t)
         scale = 1.0 + 0.12 * self._gear_hover_t
         painter.save()
         painter.translate(c)
         painter.rotate(self._gear_angle)
         painter.scale(scale, scale)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.fillPath(self._gear_path, self.style_.fg(alpha))
+        painter.fillPath(self._gear_path, self.style_.glyph(alpha))
         painter.restore()
 
 
@@ -1159,6 +1275,7 @@ class VoicePanel(SettingsPanel):
             ),
             ("segment", "Speed", "tts_rate", [("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")]),
             ("toggle", "Start with “Oye Claude”", "wake_word", None),
+            ("toggle", "Speak only when I talk", "speak_only_spoken", None),
         ]
 
     def _set(self, key: str, value):
@@ -1176,6 +1293,8 @@ class OverlayBridge(QObject):
 
     recording_started = Signal()
     recording_stopped = Signal()
+    transcribing = Signal()
+    finished = Signal(bool)  # True: pasted; False: left on the clipboard
     level_changed = Signal(float)
 
     def __init__(self, overlay: RecordingOverlay, panel: SettingsPanel):
@@ -1188,6 +1307,8 @@ class OverlayBridge(QObject):
         self.quit_requested = panel.quit_requested
         self.recording_started.connect(overlay.fade_in)
         self.recording_stopped.connect(overlay.fade_out)
+        self.transcribing.connect(overlay.show_busy)
+        self.finished.connect(overlay.show_result)
         self.level_changed.connect(overlay.set_level)
         panel.settings_changed.connect(lambda key, _value: overlay.restyle() if key in ("theme", "glass", "position") else None)
         panel.settings_changed.connect(self._on_capture_setting)

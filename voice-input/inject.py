@@ -13,6 +13,7 @@ or not), as a safety net: if the Ctrl+V didn't reach its target for whatever
 reason, the user can paste it manually from what's already copied.
 """
 
+import contextlib
 import ctypes
 import time
 import unicodedata
@@ -307,6 +308,25 @@ user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
 user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 
+GWL_EXSTYLE = -20
+WS_EX_LAYERED = 0x00080000
+LWA_ALPHA = 0x2
+RDW_INVALIDATE = 0x0001
+RDW_ALLCHILDREN = 0x0080
+RDW_FRAME = 0x0400
+user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+user32.SetLayeredWindowAttributes.argtypes = [wintypes.HWND, wintypes.COLORREF, ctypes.c_ubyte, wintypes.DWORD]
+user32.GetLayeredWindowAttributes.argtypes = [
+    wintypes.HWND,
+    ctypes.POINTER(wintypes.COLORREF),
+    ctypes.POINTER(ctypes.c_ubyte),
+    ctypes.POINTER(wintypes.DWORD),
+]
+user32.RedrawWindow.argtypes = [wintypes.HWND, ctypes.c_void_p, wintypes.HANDLE, wintypes.UINT]
+
 
 def window_title(hwnd: int) -> str:
     length = user32.GetWindowTextLengthW(hwnd)
@@ -385,17 +405,53 @@ def _find_tab(hwnd: int, topic: str) -> int | None:
     return None
 
 
+@contextlib.contextmanager
+def _invisible(hwnd: int):
+    """Keeps `hwnd` fully transparent (layered, alpha 0) for the duration:
+    it can still take the focus and the keystrokes, but the user doesn't see
+    the terminal pop up in front of what they were doing. The original style
+    and opacity always come back, even if the paste fails halfway."""
+    style = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+    was_layered = bool(style & WS_EX_LAYERED)
+    alpha = ctypes.c_ubyte(255)
+    flags = wintypes.DWORD(0)
+    if was_layered:
+        user32.GetLayeredWindowAttributes(hwnd, None, ctypes.byref(alpha), ctypes.byref(flags))
+    hidden = False
+    try:
+        if was_layered or user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED):
+            hidden = bool(user32.SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA))
+        if not hidden:
+            print(f"[diag] could not make {_describe_window(hwnd)} transparent; it will flash")
+        yield
+    finally:
+        if was_layered:
+            user32.SetLayeredWindowAttributes(hwnd, 0, alpha.value, flags.value or LWA_ALPHA)
+        else:
+            user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
+            user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style)
+        user32.RedrawWindow(hwnd, None, None, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME)
+
+
 def paste_into_window(text: str, hwnd: int, topic: str | None, press_enter: bool = False) -> bool:
     """Pastes `text` into the Claude Code session `topic` living in `hwnd`,
     even if the user is in another window or another tab of that terminal:
     jumps there (cycling tabs if needed), pastes (and presses Enter), then
     puts the tab and the focus back. `text` is left on the clipboard either
-    way, and nothing is typed anywhere unless that session is found."""
+    way, and nothing is typed anywhere unless that session is found. When
+    the terminal wasn't already in front, it stays invisible the whole time."""
     _set_clipboard_text(text)
     if not hwnd or not topic or not user32.IsWindow(hwnd):
         print("[diag] wake: no Claude Code window seen yet; text left on the clipboard")
         return False
     previous = get_foreground_window()
+    if previous == hwnd:
+        return _paste_into(text, hwnd, topic, previous, press_enter)
+    with _invisible(hwnd):
+        return _paste_into(text, hwnd, topic, previous, press_enter)
+
+
+def _paste_into(text: str, hwnd: int, topic: str, previous: int, press_enter: bool) -> bool:
     if previous != hwnd and not _focus(hwnd):
         print(f"[diag] could not bring {_describe_window(hwnd)} to the front")
         return False

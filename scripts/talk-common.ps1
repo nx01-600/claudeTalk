@@ -59,6 +59,15 @@ function Get-TalkStateFile($cwd) {
     return (Join-Path $root ".claude\claudetalk.local.md")
 }
 
+# The daemon starts every dictation it sends to Claude Code with this mark
+# (SPOKEN_MARK in voice-input/daemon_cli.py): a prompt that starts with it
+# was spoken, anything else was typed.
+$SpokenMark = [char]::ConvertFromUtf32(0x1F399) + [char]0xFE0F
+
+function Test-IsSpoken($prompt) {
+    return ([string]$prompt).TrimStart().StartsWith($SpokenMark.Substring(0, 2), [StringComparison]::Ordinal)
+}
+
 # Reads the frontmatter of .claude/claudetalk.local.md. Returns $null if the
 # file doesn't exist, otherwise a hashtable with every key filled in.
 function Get-TalkState($cwd) {
@@ -77,6 +86,7 @@ function Get-TalkState($cwd) {
     # supplies them when that panel was never used.
     $voice = & $get "voice" "es-CO-GonzaloNeural"
     $rate = & $get "rate" "+0%"
+    $onlySpoken = $false
     # The daemon may be rewriting the file at this very moment; a failed read
     # used to fall back to the default voice for that one phrase.
     for ($try = 0; $try -lt 5; $try++) {
@@ -84,6 +94,7 @@ function Get-TalkState($cwd) {
             $global = Get-Content -Raw -Encoding UTF8 (Join-Path $env:APPDATA "claudeTalk\dictation.json") | ConvertFrom-Json
             if ($global.tts_voice) { $voice = $global.tts_voice }
             if ($global.tts_rate) { $rate = $global.tts_rate }
+            $onlySpoken = [bool]$global.speak_only_spoken
             break
         } catch { Start-Sleep -Milliseconds 40 }
     }
@@ -93,6 +104,7 @@ function Get-TalkState($cwd) {
         voice    = $voice
         rate     = $rate
         skipCode = ((& $get "skip_code" "true") -eq "true")
+        onlySpoken = $onlySpoken
         edge     = (& $get "edge_tts_path" "")
         ffplay   = (& $get "ffplay_path" "")
     }
