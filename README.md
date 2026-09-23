@@ -18,9 +18,13 @@ Dictation comes with a floating *liquid glass* overlay (black and white, light o
 | **Voice dictation** | A tap of `Ctrl + Shift + Space` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
 | **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. The text **always** ends up on the clipboard too. |
 | **Liquid glass overlay** | Floating pill made of live glass: what is behind it shows through blurred and in color, with edge refraction and a specular rim. Live volume bars and a settings gear. Never steals focus. |
+| **Send confirmation** | The pill stays up while it transcribes, then compacts into a glass circle: green check when the text was pasted, amber clipboard icon when it was only left on the clipboard (e.g. you switched windows). |
+| **"Oye Claude" (hands-free)** | With talk mode on, say "Oye Claude" and dictate. The text goes to your last Claude Code session (right terminal tab included) from any app, and is sent. The terminal stays invisible while it happens, so nothing pops up over what you are doing. |
+| **Spoken vs typed** | Dictations sent to Claude start with 🎙️, so Claude knows they were spoken and reads past transcription slips. With **Speak only when I talk** on, a typed message gets a silent text answer while talk mode stays on. |
+| **No echo** | If Claude is talking when you start dictating, its voice dips in volume until you finish, so the mic doesn't write Claude's words into your message. |
 | **Live settings** | Activation keys (captures the chord you press), silence cutoff, mic sensitivity, sound, send with Enter, light/dark theme, glass intensity, position, language (Spanish / English / auto). Turning it off asks for confirmation. |
 | **Lifecycle** | With the plugin installed, dictation starts on its own when Claude Code opens and shuts down on its own when the last interactive Claude Code session ends (the `SessionStart` hook registers each session; headless `claude -p` subprocesses spawned by other plugins are ignored). You can also launch it by hand as an app (it sits in the tray). |
-| **Talk mode (TTS)** | `/talk` turns it on and off. Claude answers for a listener: short answers are read aloud, long ones get a spoken summary while the detail stays on screen. |
+| **Talk mode (TTS)** | `/talk` turns it on and off. Claude answers for a listener: short answers are read aloud, long ones get a spoken summary while the detail stays on screen. Answers queue up instead of cutting each other. Claude can change any setting when asked in plain words ("habla más rápido", "ponlo en tema oscuro"). |
 
 ## Requirements
 

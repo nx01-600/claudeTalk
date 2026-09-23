@@ -61,7 +61,7 @@ while ($null -ne ($line = $stdin.ReadLine())) {
                 Send-Result $msg.id @{
                     protocolVersion = $version
                     capabilities    = @{ tools = @{} }
-                    serverInfo      = @{ name = "claudeTalk-voice"; version = "0.3.0" }
+                    serverInfo      = @{ name = "claudeTalk-voice"; version = "0.4.0" }
                 }
             }
             "ping" { Send-Result $msg.id @{} }
