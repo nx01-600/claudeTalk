@@ -78,7 +78,7 @@ If you switched windows in the meantime, it pastes nothing: the text stays on th
 Click the gear on the pill (or right-click the tray icon → **Settings**).
 
 - **Dictation**
-- **Activation**: **Keys** — click and press the new combination; it saves on release, `Esc` cancels. **Silence cutoff** — 1, 2, or 3 s. **Mic sensitivity** — Low / Medium / High: how easily sound counts as speech; lower it if voices from your speakers (a call, echo) keep the recording going or get transcribed. **Sound on start** — the chime when recording begins. **Send with Enter** — press Enter right after pasting, so the dictated message is sent without touching the keyboard (off by default).
+- **Activation**: **Keys** — click and press the new combination; it saves on release, `Esc` cancels. **Silence cutoff** — a slider from 0.5 to 10 s, in quarter seconds. **Mic sensitivity** — a 0-100 slider: how easily sound counts as speech; lower it if voices from your speakers (a call, echo) keep the recording going or get transcribed. **Sound on start** — the chime when recording begins. **Send with Enter** — press Enter right after pasting, so the dictated message is sent without touching the keyboard (off by default).
 - **Appearance**: **Theme** — Light / Dark. **Glass** — how much blur and transparency. **Position** — Bottom / Top.
 - **Transcription**: **Language** — Spanish / English / Auto.
 - **Turn off dictation**: shuts the daemon down completely, asks for confirmation.
@@ -98,10 +98,10 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly.
   - writes short answers once, in plain sentences, and they are read aloud (no double generation);
   - for long or technical answers, speaks a 1-2 sentence summary ("I left the three steps on screen") with the `say` tool and writes the detail. The `say` call stays folded in the transcript: **Ctrl+O** shows what was said;
   - can speak while it works ("let me check the hook") because `say` plays in the background.
-- A new prompt cuts whatever Claude is saying.
+- Answers queue up: a new prompt does not cut what Claude is saying, so you can send the next message while still listening. To silence it now, say "cállate" (talk mode stays on).
 - Safety net: if Claude writes something long without speaking, the `Stop` hook only says "I left the answer on screen".
 - The first time Claude uses `say`, Claude Code asks for permission; pick "don't ask again" (or add `mcp__plugin_claudeTalk_voice__say` to `permissions.allow`).
-- **Voice and speed**: open the dictation gear. Next to the dictation settings, a **Claude's voice** panel lets you pick the voice (Salomé, Gonzalo, Dalia, Jorge) and the speed. Each change plays a sample. The choice is global (`%APPDATA%\claudeTalk\dictation.json`).
+- **Voice and speed**: open the dictation gear. Next to the dictation settings, a **Claude's voice** panel lets you pick the voice (Salomé, Gonzalo, Dalia, Jorge) and the speed. Each change plays a sample. The choice is global (`%APPDATA%\claudeTalk\dictation.json`). You can also just ask Claude ("cambia a la voz de Salomé", "habla más rápido", "ponle 5 segundos de silencio"): the talk skill edits that file and the dictation app reloads it within a second.
 - **"Oye Claude" (hands-free)**: turn on **Start with "Oye Claude"** in the same panel. While talk mode is on, saying "Oye Claude" starts a dictation, as if you had pressed the keys: wait for the chime, then speak. If nothing is said within 6 seconds, it gives up.
   - The text always goes to the **last Claude Code session you had in front**, even if you are in another app or another tab by then. The daemon jumps to that window, finds the tab by its title (Claude Code titles it "✳ topic"; it cycles tabs with Ctrl+Tab), pastes and sends, then puts the tab and your focus back. If that session can't be found, the text stays on the clipboard.
   - It only listens while talk mode is on (`/talk` writes `%APPDATA%\claudeTalk\talk-active.flag`). With talk mode off, the mic is closed.

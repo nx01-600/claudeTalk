@@ -268,6 +268,20 @@ def _on_settings_changed(key, value):
 
 
 bridge.settings_changed.connect(_on_settings_changed)
+
+
+def _reload_config():
+    """Picks up edits made outside the panel (Claude changing its voice)."""
+    for key, value in config.reload_if_changed().items():
+        bridge.settings_changed.emit(key, value)
+    bridge.panel.update()
+    if bridge.panel._companion is not None:
+        bridge.panel._companion.update()
+
+
+config_watch = QTimer()
+config_watch.timeout.connect(_reload_config)
+config_watch.start(1000)
 bridge.capture_started.connect(chord.pause)
 bridge.capture_finished.connect(chord.resume)
 bridge.quit_requested.connect(app.quit)

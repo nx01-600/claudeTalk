@@ -522,6 +522,19 @@ SEG_H = 26
 SEG_MIN_W = 58
 SLIDER_W = 132
 SLIDER_KNOB_R = 8
+SLIDER_VALUE_W = 44  # value label to the left of a ranged slider
+
+
+class SliderRange:
+    """A slider over [low, high] in `step`s, showing its value as `fmt(v)`.
+    Sliders without one run 0..100 and show no number."""
+
+    def __init__(self, low, high, step, fmt):
+        self.low, self.high, self.step, self.fmt = low, high, step, fmt
+
+
+PERCENT = SliderRange(0, 100, 1, None)
+SILENCE_RANGE = SliderRange(500, 10000, 250, lambda v: f"{v / 1000:g} s")
 CAPTURE_TIMEOUT_S = 8.0
 
 _MOD_RANK = {0xA2: 0, 0xA3: 0, 0xA4: 1, 0xA5: 1, 0xA0: 2, 0xA1: 2, 0x5B: 3, 0x5C: 3}
@@ -583,7 +596,7 @@ class SettingsPanel(_GlassWindow):
         rows = [
             ("group", "Activation", None, None),
             ("hotkey", "Keys", "hotkey", None),
-            ("segment", "Silence cutoff", "silence_ms", [(1000, "1 s"), (2000, "2 s"), (3000, "3 s")]),
+            ("slider", "Silence cutoff", "silence_ms", SILENCE_RANGE),
             ("slider", "Mic sensitivity", "sensitivity", None),
             ("toggle", "Sound on start", "sound", None),
             ("toggle", "Send with Enter", "auto_enter", None),
@@ -882,7 +895,9 @@ class SettingsPanel(_GlassWindow):
         key = self._rows[i][2]
         control = self._control_rect(i, self._rect_of(i))
         t = (pos.x() - control.left() - SLIDER_KNOB_R) / (control.width() - 2 * SLIDER_KNOB_R)
-        value = int(round(max(0.0, min(1.0, t)) * 100))
+        rng = self._rows[i][3] or PERCENT
+        raw = rng.low + max(0.0, min(1.0, t)) * (rng.high - rng.low)
+        value = int(round(raw / rng.step) * rng.step)
         if value != self.config.get(key):
             self._set(key, value)
 
@@ -974,7 +989,7 @@ class SettingsPanel(_GlassWindow):
         elif kind == "segment":
             self._paint_segment(painter, control, key, opts, index)
         elif kind == "slider":
-            self._paint_slider(painter, control, key, hovered)
+            self._paint_slider(painter, control, key, hovered, opts or PERCENT)
         elif kind == "hotkey":
             self._paint_hotkey(painter, control, hovered)
 
@@ -1022,9 +1037,18 @@ class SettingsPanel(_GlassWindow):
             painter.setPen(st.text() if selected else st.text(False))
             painter.drawText(seg, Qt.AlignmentFlag.AlignCenter, text)
 
-    def _paint_slider(self, painter: QPainter, r: QRectF, key: str, hovered: bool):
+    def _paint_slider(self, painter: QPainter, r: QRectF, key: str, hovered: bool, rng: SliderRange):
         st = self.style_
-        value = self.config.get(key) / 100.0
+        current = self.config.get(key)
+        value = max(0.0, min(1.0, (current - rng.low) / (rng.high - rng.low)))
+        if rng.fmt is not None:
+            painter.setFont(QFont(FONT_FAMILY, 8.5))
+            painter.setPen(st.text(False))
+            painter.drawText(
+                QRectF(r.left() - SLIDER_VALUE_W - 4, r.top(), SLIDER_VALUE_W, r.height()),
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+                rng.fmt(current),
+            )
         cy = r.center().y()
         x0 = r.left() + SLIDER_KNOB_R
         x1 = r.right() - SLIDER_KNOB_R

@@ -1,7 +1,8 @@
 # claudeTalk - talk-context.ps1
-# 'UserPromptSubmit' hook. A new prompt cuts whatever Claude was saying, like
-# in a real conversation. While talk mode is on, it also reminds Claude, every
+# 'UserPromptSubmit' hook. While talk mode is on, it reminds Claude, every
 # turn, how to answer for someone who is listening. Off: no output, no tokens.
+# A new prompt does NOT cut what Claude is saying: answers queue up, so the
+# user can send the next message while still listening to the last one.
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "talk-common.ps1")
@@ -10,8 +11,6 @@ try {
     $raw = Read-HookInput
     $payload = if ($raw) { $raw | ConvertFrom-Json } else { $null }
     $cwd = if ($payload -and $payload.cwd) { $payload.cwd } else { (Get-Location).Path }
-
-    Stop-Speech
 
     $state = Get-TalkState $cwd
     if (-not $state -or -not $state.enabled) { exit 0 }
@@ -25,7 +24,7 @@ claudeTalk talk mode is ON: the user hears you through text-to-speech. Answer fo
 - If the answer needs code, tables, lists or more than ~3 sentences: first call the claudeTalk say tool with 1-2 sentences that give the gist or point to the screen (e.g. "Te deje en pantalla los tres pasos"), then write the full detail. Never say the same thing you write.
 - For work with tools: call say briefly when you start ("Voy a revisar el hook") and, if the result is long, again before the final write-up.
 - Never put code, paths, symbols or markdown in say.
-- If the user asks to stop talking or to turn talk mode off/on, use the claudeTalk talk skill.
+- If the user asks to stop talking or to turn talk mode off/on, or to change your voice, speed or the dictation silence time, use the claudeTalk talk skill.
 "@
 
     @{ hookSpecificOutput = @{ hookEventName = "UserPromptSubmit"; additionalContext = $rules } } |

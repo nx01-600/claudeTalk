@@ -8,8 +8,9 @@ nothing but reading the mic.
 
 It only listens while `should_listen()` holds (the gear's toggle is on AND
 talk mode is on: see TALK_FLAG), and steps aside while a dictation is
-recording or transcribing (`is_busy`) and while Claude is talking, so
-Claude's own voice coming out of the speakers can't wake it.
+recording or transcribing (`is_busy`). While Claude is talking it keeps
+listening, so the user can call it over Claude's voice, but only the full
+"oye Claude" form counts then (Claude's speech rarely says that).
 """
 
 import ctypes
@@ -33,7 +34,7 @@ BURST_MIN_MS = 300  # shorter bursts are clicks and knocks
 BURST_MAX_MS = 2500  # "oye claude" fits easily; longer is someone talking
 FLOOR_WINDOW_MS = 4000  # noise floor = low percentile of this recent window
 MIN_FLOOR = 1e-4
-TTS_TAIL_S = 0.8  # stay deaf this long after Claude stops talking
+TTS_TAIL_S = 0.8  # strict matching lasts this long after Claude stops talking
 
 # Whisper writes the name in many ways, and a clipped "oye" comes out as
 # "y", "Roger" or anything else. So: either a call word right before the
@@ -62,10 +63,14 @@ def _normalize(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text).split())
 
 
-def is_wake_phrase(text: str) -> bool:
+def is_wake_phrase(text: str, strict: bool = False) -> bool:
+    """strict: only the full "oye/hey + name" form (used while Claude is
+    talking, when the mic also hears Claude's voice)."""
     text = _normalize(text)
     if WAKE_RE.search(text):
         return True
+    if strict:
+        return False
     words = text.split()
     return 0 < len(words) <= SHORT_WORDS and WAKE_SHORT_RE.fullmatch(words[-1]) is not None
 
@@ -146,7 +151,8 @@ class WakeListener:
         recent = deque(maxlen=FLOOR_WINDOW_MS // BLOCK_MS)
         burst: list[np.ndarray] = []
         loud_ms = quiet_ms = 0
-        deaf_until = 0.0
+        talking_until = 0.0
+        strict = False  # the current burst overlapped Claude's voice
 
         with sd.InputStream(
             samplerate=audio.SAMPLE_RATE, channels=audio.CHANNELS, dtype="float32", blocksize=block_size
@@ -157,11 +163,8 @@ class WakeListener:
                 level = audio._rms(block)
 
                 if claude_is_talking():
-                    deaf_until = time.monotonic() + TTS_TAIL_S
-                if time.monotonic() < deaf_until:
-                    burst.clear()
-                    preroll.clear()
-                    continue
+                    talking_until = time.monotonic() + TTS_TAIL_S
+                over_claude = time.monotonic() < talking_until
 
                 recent.append(level)
                 if len(recent) < recent.maxlen // 4:
@@ -174,11 +177,13 @@ class WakeListener:
                     if loud:
                         burst = list(preroll) + [block]
                         loud_ms, quiet_ms = BLOCK_MS, 0
+                        strict = over_claude
                     else:
                         preroll.append(block)
                     continue
 
                 burst.append(block)
+                strict = strict or over_claude
                 if loud:
                     loud_ms += BLOCK_MS
                     quiet_ms = 0
@@ -193,10 +198,10 @@ class WakeListener:
                 preroll.clear()
                 if loud_ms < BURST_MIN_MS:
                     continue
-                if self._check(pcm):
+                if self._check(pcm, strict):
                     return  # the dictation takes the mic from here
 
-    def _check(self, pcm: np.ndarray) -> bool:
+    def _check(self, pcm: np.ndarray, strict: bool) -> bool:
         if self._paused():
             return False
         try:
@@ -206,7 +211,7 @@ class WakeListener:
             return False
         if not text:
             return False
-        hit = is_wake_phrase(text)
+        hit = is_wake_phrase(text, strict)
         print(f"[wake] heard {text!r}{' -> wake' if hit else ''}")
         if hit and not self._paused():
             self._on_wake()

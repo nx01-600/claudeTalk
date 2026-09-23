@@ -2,6 +2,8 @@
 
 Stored outside the repo so it survives plugin updates and never pollutes
 git. Every set() writes to disk right away (there are only a few values).
+Other programs may edit the file too (the talk skill changes Claude's voice
+through scripts/voice-toggle.ps1): reload_if_changed() picks that up.
 """
 
 import json
@@ -17,7 +19,7 @@ VK_SPACE = 0x20
 
 DEFAULTS = {
     "hotkey": [VK_CONTROL, VK_SHIFT, VK_SPACE],  # generic Ctrl/Shift: either side works
-    "silence_ms": 2000,
+    "silence_ms": 2000,  # 500..10000, silence that ends a recording
     "sensitivity": 50,  # 0..100, how easily the mic counts sound as speech
     "sound": True,
     "auto_enter": False,  # press Enter after pasting (sends the message)
@@ -90,13 +92,22 @@ class Config:
     def __init__(self, path: Path = CONFIG_PATH):
         self._path = path
         self._data = dict(DEFAULTS)
+        self._mtime = None
         self.load()
 
-    def load(self):
+    def _disk_mtime(self):
         try:
-            with open(self._path, "r", encoding="utf-8") as fh:
+            return self._path.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def load(self):
+        self._mtime = self._disk_mtime()
+        try:
+            with open(self._path, "r", encoding="utf-8-sig") as fh:
                 stored = json.load(fh)
         except (OSError, ValueError):
+            self._mtime = None  # half-written by someone else: retry next time
             return
         for key in DEFAULTS:
             if key in stored:
@@ -112,6 +123,17 @@ class Config:
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(self._data, fh, indent=2, ensure_ascii=False)
         os.replace(tmp, self._path)
+        self._mtime = self._disk_mtime()
+
+    def reload_if_changed(self) -> dict:
+        """Re-reads the file if something else wrote it; returns the keys
+        whose value changed, with their new values."""
+        mtime = self._disk_mtime()
+        if mtime is None or mtime == self._mtime:
+            return {}
+        before = dict(self._data)
+        self.load()
+        return {k: v for k, v in self._data.items() if before.get(k) != v}
 
     def get(self, key: str):
         return self._data[key]
