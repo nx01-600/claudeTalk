@@ -13,7 +13,10 @@ mouse.
 The glass is real and live: the window is excluded from screen capture
 (WDA_EXCLUDEFROMCAPTURE), so while it is visible it can grab what is behind
 itself 25 times a second, blur it (color kept, saturation boosted), tint it,
-and add edge lensing plus a specular rim. Windows' native backdrops
+and add edge lensing plus a specular rim. With "Show in screen share" on,
+the window stays capturable instead (it shows in Meet/Zoom/recordings) and
+the glass is a single snapshot taken just before the window appears: it
+would otherwise capture itself. Focus handling is the same either way. Windows' native backdrops
 (DWMWA_SYSTEMBACKDROP_TYPE / SetWindowCompositionAttribute) were tried and
 only produce a flat solid panel for a window whose content Qt paints by hand,
 so they are not used. The "Glass" setting drives blur, tint and saturation.
@@ -48,17 +51,19 @@ SHADOW_OFFSET_Y = 4
 SHADOW_SPREAD = 12
 
 
+WDA_NONE = 0x00
 WDA_EXCLUDEFROMCAPTURE = 0x11
 
 
-def _apply_native_overlay_styles(hwnd: int):
+def _apply_native_overlay_styles(hwnd: int, capturable: bool):
     user32 = ctypes.windll.user32
     style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
     user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
     # Invisible to screen capture: that is what lets the window grab what is
     # behind itself while visible (live backdrop). Side effect: the overlay
-    # does not show up in screenshots or screen sharing.
-    user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+    # does not show up in screenshots or screen sharing, unless the user
+    # asked for that ("Show in screen share").
+    user32.SetWindowDisplayAffinity(hwnd, WDA_NONE if capturable else WDA_EXCLUDEFROMCAPTURE)
 
 
 def _lerp(a: float, b: float, t: float) -> float:
@@ -86,6 +91,10 @@ class Style:
     @property
     def top(self) -> bool:
         return self.config.get("position") == "top"
+
+    @property
+    def capturable(self) -> bool:
+        return bool(self.config.get("show_in_capture"))
 
     def fg(self, alpha: int) -> QColor:
         return QColor(255, 255, 255, alpha) if self.dark else QColor(0, 0, 0, alpha)
@@ -161,14 +170,12 @@ def _glassify(raw: QPixmap, style: Style) -> QPixmap:
     return result
 
 
-def _capture_behind(widget: QWidget, style: Style) -> QPixmap:
-    """Grabs what is behind the widget. The window is excluded from screen
-    capture (WDA_EXCLUDEFROMCAPTURE), so this works while it is visible and
-    never captures the overlay itself."""
+def _capture_behind(widget: QWidget) -> QPixmap:
+    """Grabs the screen area under the widget. Only shows what is behind it
+    if the window is hidden or excluded from capture (WDA_EXCLUDEFROMCAPTURE)."""
     geo = widget.geometry()
     screen = QApplication.screenAt(geo.center()) or QApplication.primaryScreen()
-    raw = screen.grabWindow(0, geo.x(), geo.y(), geo.width(), geo.height())
-    return _glassify(raw, style)
+    return screen.grabWindow(0, geo.x(), geo.y(), geo.width(), geo.height())
 
 
 def _paint_shadow(painter: QPainter, rect: QRectF, radius: float, style: Style):
@@ -235,8 +242,9 @@ LIVE_REFRESH_MS = 40
 
 class _GlassWindow(QWidget):
     """Shared base: frameless, always on top, never activates, translucent
-    background, excluded from screen capture, and a live backdrop refresh
-    while visible."""
+    background, and the glass backdrop: refreshed live while visible when
+    excluded from screen capture, or a snapshot taken before showing when
+    the user wants it visible in screen sharing."""
 
     def __init__(self, style: Style):
         super().__init__(None, WINDOW_FLAGS)
@@ -245,22 +253,35 @@ class _GlassWindow(QWidget):
         self.setMouseTracking(True)
         self.style_ = style
         self._bg_pixmap = None
+        self._bg_raw = None  # last capture, re-blurred when theme/glass change
         self._live = QTimer(self)
         self._live.setInterval(LIVE_REFRESH_MS)
         self._live.timeout.connect(self.refresh_background)
-        _apply_native_overlay_styles(int(self.winId()))
+        _apply_native_overlay_styles(int(self.winId()), style.capturable)
 
     def showEvent(self, event):
         super().showEvent(event)
-        _apply_native_overlay_styles(int(self.winId()))
-        self._live.start()
+        self.apply_capture_mode()
 
     def hideEvent(self, event):
         super().hideEvent(event)
         self._live.stop()
 
+    def apply_capture_mode(self):
+        """Excluded from capture: live glass. Capturable: snapshot glass, no
+        timer at all (cheaper too)."""
+        _apply_native_overlay_styles(int(self.winId()), self.style_.capturable)
+        if self.isVisible() and not self.style_.capturable:
+            self._live.start()
+        else:
+            self._live.stop()
+
     def refresh_background(self):
-        self._bg_pixmap = _capture_behind(self, self.style_)
+        # A capturable window that is on screen would grab itself: keep the
+        # snapshot taken before it appeared and only re-blur it.
+        if self._bg_raw is None or not (self.style_.capturable and self.isVisible()):
+            self._bg_raw = _capture_behind(self)
+        self._bg_pixmap = _glassify(self._bg_raw, self.style_)
         self.update()
 
 
@@ -604,6 +625,7 @@ class SettingsPanel(_GlassWindow):
             ("segment", "Theme", "theme", [("light", "Light"), ("dark", "Dark")]),
             ("slider", "Glass", "glass", None),
             ("segment", "Position", "position", [("bottom", "Bottom"), ("top", "Top")]),
+            ("toggle", "Show in screen share", "show_in_capture", None),
             ("group", "Transcription", None, None),
             ("segment", "Language", "language", [("es", "Spanish"), ("en", "English"), ("auto", "Auto")]),
             ("group", "", None, None),
@@ -1168,6 +1190,14 @@ class OverlayBridge(QObject):
         self.recording_stopped.connect(overlay.fade_out)
         self.level_changed.connect(overlay.set_level)
         panel.settings_changed.connect(lambda key, _value: overlay.restyle() if key in ("theme", "glass", "position") else None)
+        panel.settings_changed.connect(self._on_capture_setting)
+
+    def _on_capture_setting(self, key, _value):
+        if key != "show_in_capture":
+            return
+        for window in (self.overlay, self.panel, self.panel._companion):
+            if window is not None:
+                window.apply_capture_mode()
 
 
 def create_app_and_overlay(config: cfg.Config):

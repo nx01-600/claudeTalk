@@ -27,6 +27,7 @@ DEFAULTS = {
     "theme": "light",  # light | dark
     "glass": 60,  # 0..100, glass effect intensity (blur + transparency)
     "position": "bottom",  # bottom | top
+    "show_in_capture": False,  # overlay visible in screen sharing (glass becomes a snapshot)
     "language": "es",  # es | en | auto
     # Claude's voice (talk mode). Read by scripts/talk-common.ps1 too.
     "tts_voice": "es-CO-GonzaloNeural",  # any edge-tts neural voice

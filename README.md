@@ -79,7 +79,7 @@ Click the gear on the pill (or right-click the tray icon → **Settings**).
 
 - **Dictation**
 - **Activation**: **Keys** — click and press the new combination; it saves on release, `Esc` cancels. **Silence cutoff** — a slider from 0.5 to 10 s, in quarter seconds. **Mic sensitivity** — a 0-100 slider: how easily sound counts as speech; lower it if voices from your speakers (a call, echo) keep the recording going or get transcribed. **Sound on start** — the chime when recording begins. **Send with Enter** — press Enter right after pasting, so the dictated message is sent without touching the keyboard (off by default).
-- **Appearance**: **Theme** — Light / Dark. **Glass** — how much blur and transparency. **Position** — Bottom / Top.
+- **Appearance**: **Theme** — Light / Dark. **Glass** — how much blur and transparency. **Position** — Bottom / Top. **Show in screen share** — off by default, the pill and panels are invisible to screen sharing, screenshots and recordings. On, they show up there too; the glass then uses one snapshot of the background taken as the window appears instead of refreshing live (it would otherwise capture itself). It never takes focus either way.
 - **Transcription**: **Language** — Spanish / English / Auto.
 - **Turn off dictation**: shuts the daemon down completely, asks for confirmation.
 
