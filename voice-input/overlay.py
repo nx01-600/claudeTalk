@@ -1293,7 +1293,18 @@ class VoicePanel(SettingsPanel):
                     ("es-CO-SalomeNeural", "Salomé"),
                     ("es-CO-GonzaloNeural", "Gonzalo"),
                     ("es-MX-DaliaNeural", "Dalia"),
+                ],
+            ),
+            # Six voices don't fit in one row: the second row edits the same
+            # setting, and only the row holding the current voice shows a chip.
+            (
+                "segment",
+                "",
+                "tts_voice",
+                [
                     ("es-MX-JorgeNeural", "Jorge"),
+                    ("es-AR-ElenaNeural", "Elena"),
+                    ("es-US-AlonsoNeural", "Alonso"),
                 ],
             ),
             ("segment", "Speed", "tts_rate", [("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")]),

@@ -15,6 +15,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scrip
 
 ## Talk mode
 - `on`: start talking out loud. `off`: turn talk mode off. `toggle`: plain /talk with no argument.
+- Talk mode is per session: every Claude Code session turns it on and off on its own. When other sessions are already talking, this one gets a different voice automatically, so the user can tell sessions apart by ear.
 - `stop`: be quiet right now but keep talk mode on ("cállate", "para", "ya entendí").
 
 ## Settings: `set SETTING VALUE`
@@ -22,7 +23,7 @@ Every change is saved at once and the dictation app applies it within a second: 
 
 | SETTING | VALUE | What it is |
 |---|---|---|
-| `voice` | Salome, Gonzalo, Dalia, Jorge | Claude's voice (Salomé and Dalia women, Gonzalo and Jorge men; Salomé/Gonzalo Colombian, Dalia/Jorge Mexican) |
+| `voice` | Salome, Gonzalo, Dalia, Jorge, Elena, Alonso | Claude's voice in this session (Salomé, Dalia and Elena women, Gonzalo, Jorge and Alonso men; Salomé/Gonzalo Colombian, Dalia/Jorge Mexican, Elena Argentine, Alonso US neutral) |
 | `rate` | slow, normal, fast, faster, or +10% / -5% | how fast Claude talks |
 | `silence` | seconds, 0.5 to 10 (e.g. 4.5) | pause that ends a dictation |
 | `sensitivity` | 0 to 100 | mic sensitivity; higher picks up a softer voice, lower ignores background voices |
@@ -41,6 +42,7 @@ Every change is saved at once and the dictation app applies it within a second: 
 
 ## After running
 - **ON**: call the claudeTalk `say` tool with a short greeting in the user's language (for example "Listo, te escucho") and write one line confirming talk mode is on and that /talk turns it off. From now on follow the talk mode rules that arrive with each prompt.
+- **ON with its OWN voice** (the script says other sessions are talking): the greeting introduces the voice, e.g. "Hola, soy Elena. Esta va a ser mi voz en esta sesión, para que no me confundas con las otras." Write one line saying which voice this session got and which ones the other sessions use.
 - **OFF**: write one line confirming talk mode is off. Don't call `say`.
 - **stop**: only a very short acknowledgement.
 - **set**: confirm in one short sentence in the user's language what changed. For `voice`/`rate`, that sentence already plays in the new voice.

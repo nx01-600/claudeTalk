@@ -5,7 +5,9 @@
 # the text). It returns immediately: the phrase goes to the speech queue that
 # speak.ps1 -Worker plays in order.
 #
-# If talk mode is off in the project, `say` stays silent and tells Claude so.
+# If talk mode is off in this session, `say` stays silent and tells Claude so.
+# Claude Code starts one server per session, so the session (and its voice) is
+# looked up from the claude.exe this server runs under.
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "talk-common.ps1")
@@ -41,8 +43,8 @@ function Send-Error($id, $code, $message) {
 }
 
 function Invoke-Say($text) {
-    $state = Get-TalkState $projectDir
-    if (-not $state -or -not $state.enabled) {
+    $state = Get-TalkState $projectDir (Get-TalkSessionId)
+    if (-not $state.enabled) {
         return "talk mode is off: nothing was spoken. Don't call say until the user turns talk mode on."
     }
     Add-Speech $text $state
@@ -61,7 +63,7 @@ while ($null -ne ($line = $stdin.ReadLine())) {
                 Send-Result $msg.id @{
                     protocolVersion = $version
                     capabilities    = @{ tools = @{} }
-                    serverInfo      = @{ name = "claudeTalk-voice"; version = "0.4.0" }
+                    serverInfo      = @{ name = "claudeTalk-voice"; version = "0.5.0" }
                 }
             }
             "ping" { Send-Result $msg.id @{} }

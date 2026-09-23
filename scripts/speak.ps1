@@ -50,10 +50,11 @@ function Invoke-Item($file) {
                 $edge, $item.voice, $rate, $txt, $ffplay
             $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/d /s /c $line" -WindowStyle Hidden -PassThru
             Set-Content -Path $script:TalkPidFile -Value $p.Id
+            Set-Content -Path $script:TalkPlayerSession -Value ([string]$item.session)
             $p.WaitForExit()
             # Done talking: the dictation's wake word listener (wake.py)
             # reads this file to stay deaf while Claude speaks.
-            Remove-Item $script:TalkPidFile -Force -ErrorAction SilentlyContinue
+            Remove-Item $script:TalkPidFile, $script:TalkPlayerSession -Force -ErrorAction SilentlyContinue
         } finally {
             Remove-Item $txt -Force -ErrorAction SilentlyContinue
         }
@@ -157,8 +158,8 @@ try {
     $transcript = $payload.transcript_path
     if (-not $transcript -or -not (Test-Path $transcript)) { exit 0 }
 
-    $state = Get-TalkState $payload.cwd
-    if (-not $state -or -not $state.enabled) { exit 0 }
+    $state = Get-TalkState $payload.cwd (Get-TalkSessionId $payload.session_id)
+    if (-not $state.enabled) { exit 0 }
 
     # Claude Code can fire Stop a moment before the final message reaches the
     # transcript. Newer versions hand that message over as

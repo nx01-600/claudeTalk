@@ -12,9 +12,19 @@ try {
     $payload = if ($raw) { $raw | ConvertFrom-Json } else { $null }
     $cwd = if ($payload -and $payload.cwd) { $payload.cwd } else { (Get-Location).Path }
 
-    $state = Get-TalkState $cwd
-    if (-not $state -or -not $state.enabled) { exit 0 }
-    # Talk mode may have been left on from an earlier session: re-arm "Oye Claude".
+    $sid = if ($payload) { Get-TalkSessionId $payload.session_id } else { Get-TalkSessionId }
+    # The `say` server and /talk find their session through live.json. If
+    # SessionStart didn't record it (plugin updated mid-session), do it now:
+    # this prompt may be the /talk that needs it.
+    if ($sid -and -not $env:CLAUDETALK_SESSION_ID) {
+        $live = Read-JsonFile $script:TalkLiveFile
+        $known = $live -and (@($live.PSObject.Properties | ForEach-Object { $_.Value }) -contains $sid)
+        if (-not $known) { Register-TalkSession $sid }
+    }
+
+    $state = Get-TalkState $cwd $sid
+    if (-not $state.enabled) { exit 0 }
+    # Talk mode may have been left on from an earlier run: re-arm "Oye Claude".
     Set-TalkFlag $true
 
     $spoken = Test-IsSpoken $payload.prompt

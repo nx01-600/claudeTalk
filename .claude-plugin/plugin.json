@@ -1,7 +1,7 @@
 {
   "name": "claudeTalk",
-  "version": "0.4.0",
-  "description": "Voice for Claude Code on Windows: talk mode where Claude speaks to you (edge-tts), local Whisper dictation on GPU, hands-free \"Oye Claude\" that sends to your last Claude session from any app, and a liquid glass overlay that confirms each send.",
+  "version": "0.5.0",
+  "description": "Voice for Claude Code on Windows: talk mode where Claude speaks to you (edge-tts) with a distinct voice per parallel session, local Whisper dictation on GPU, hands-free \"Oye Claude\" that sends to your last Claude session from any app, and a liquid glass overlay that confirms each send.",
   "author": {
     "name": "Nicolas Carreno"
   },

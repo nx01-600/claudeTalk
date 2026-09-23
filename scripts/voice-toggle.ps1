@@ -1,6 +1,6 @@
 # claudeTalk - voice-toggle.ps1
-# Turns talk mode on / off / flips it / queries it by writing
-# .claude/claudetalk.local.md in the current workspace, and changes any of the
+# Turns talk mode on / off / flips it / queries it for THIS Claude Code session
+# (see the sessions notes in talk-common.ps1), and changes any of the
 # settings the gear panel edits (%APPDATA%\claudeTalk\dictation.json); the
 # dictation app reloads that file by itself within a second.
 # Usage: voice-toggle.ps1 on|off|toggle|status|stop|settings
@@ -15,11 +15,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "talk-common.ps1")
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
 $SettingsPath = Join-Path $env:APPDATA "claudeTalk\dictation.json"
 
 $Help = @"
 Settings (set <setting> <value>):
-  voice        Salome | Gonzalo | Dalia | Jorge   (Claude's voice)
+  voice        Salome | Gonzalo | Dalia | Jorge | Elena | Alonso   (Claude's voice in this session)
   rate         slow | normal | fast | faster | +N% | -N%   (Claude's speed)
   silence      seconds, 0.5 to 10   (pause that ends a dictation)
   sensitivity  0 to 100   (mic sensitivity; higher picks up a softer voice)
@@ -109,10 +110,10 @@ function Resolve-Setting($name, $v) {
     $plain = ConvertTo-Plain $v
     $n = ConvertTo-Plain $name
     if ($n -in "voice", "voz") {
-        $voices = [ordered]@{ salom = "es-CO-SalomeNeural"; gonzalo = "es-CO-GonzaloNeural"; dalia = "es-MX-DaliaNeural"; jorge = "es-MX-JorgeNeural" }
+        $voices = [ordered]@{ salom = "es-CO-SalomeNeural"; gonzalo = "es-CO-GonzaloNeural"; dalia = "es-MX-DaliaNeural"; jorge = "es-MX-JorgeNeural"; elena = "es-AR-ElenaNeural"; alonso = "es-US-AlonsoNeural" }
         foreach ($k in $voices.Keys) { if ($plain.StartsWith($k)) { return @("tts_voice", $voices[$k], "voice $($voices[$k])") } }
         if ($v -match '^[a-z]{2}-[A-Z]{2}-\w+Neural$') { return @("tts_voice", $v, "voice $v") }
-        throw "unknown voice '$v'. Options: Salome, Gonzalo, Dalia, Jorge."
+        throw "unknown voice '$v'. Options: Salome, Gonzalo, Dalia, Jorge, Elena, Alonso."
     }
     if ($n -in "rate", "speed", "velocidad") {
         $rates = @{ slow = "-15%"; lenta = "-15%"; normal = "+0%"; fast = "+20%"; rapida = "+20%"; faster = "+40%"; "muy rapida" = "+40%" }
@@ -160,6 +161,21 @@ if ($Action -eq "set") {
         Write-Output "claudeTalk: $($_.Exception.Message)"
         exit 1
     }
+    $sid = Get-TalkSessionId
+    if ($r[0] -eq "tts_voice" -and $sid) {
+        # The voice belongs to this session. The session that speaks with the
+        # gear voice (or the only one talking) also moves the gear along.
+        $sess = Get-SessionState $sid
+        $others = Get-OtherVoices $sid
+        $followGear = $sess.follows_default -or -not $others.Count
+        $sess.voice = $r[1]
+        $sess.follows_default = $followGear
+        Invoke-SessionLock { Set-SessionState $sid $sess } | Out-Null
+        if ($followGear) { Set-DictationSetting $r[0] $r[1] }
+        $note = if ($others -contains $r[1]) { " Another session already talks with that voice." } else { "" }
+        Write-Output "claudeTalk: $($r[2]) for this session.$note Applied now."
+        exit 0
+    }
     Set-DictationSetting $r[0] $r[1]
     Write-Output "claudeTalk: $($r[2]). Applied now."
     exit 0
@@ -173,54 +189,43 @@ if ($Action -eq "settings") {
     exit 0
 }
 if ($Action -eq "stop") {
-    Stop-Speech
+    Stop-Speech (Get-TalkSessionId)
     Write-Output "claudeTalk: stopped talking (talk mode stays on)."
     exit 0
 }
 
-$file = Get-TalkStateFile (Get-Location).Path
-$dir  = Split-Path -Parent $file
-
-if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
-if (-not (Test-Path $file)) {
-@"
----
-enabled: false
-skip_code: true
----
-
-# claudeTalk - talk mode status
-Controls whether Claude talks to you out loud in this workspace.
-Flip 'enabled' with /talk. Voice and speed are picked in the dictation
-gear panel ("Claude's voice"), shared by every project.
-"@ | Set-Content -Path $file -Encoding UTF8
+$sid = Get-TalkSessionId
+if (-not $sid) {
+    Write-Output "claudeTalk: can't tell which Claude Code session this is (run it from inside Claude Code)."
+    exit 1
 }
-
-$content = Get-Content -Raw $file
+$sess = Get-SessionState $sid
 
 if ($Action -eq "toggle") {
-    $on = [regex]::Match($content, '(?m)^\s*enabled\s*:\s*true\s*$').Success
-    $Action = if ($on) { "off" } else { "on" }
+    $Action = if ($sess.enabled) { "off" } else { "on" }
 }
 
 switch ($Action) {
     "on" {
-        $content = $content -replace '(?m)^(\s*enabled\s*:\s*).*$', '${1}true'
-        $content | Set-Content $file -Encoding UTF8
-        Set-TalkFlag $true
-        Write-Output "claudeTalk: talk mode ON (Claude talks to you until you run /talk again)."
+        $r = Enable-TalkSession $sid
+        $name = Get-VoiceName $r.voice
+        if ($r.own) {
+            $busy = (@($r.others | Select-Object -Unique | ForEach-Object { Get-VoiceName $_ }) -join ", ")
+            Write-Output "claudeTalk: talk mode ON for this session with its OWN voice: $name ($($r.voice)). Other sessions are talking with: $busy. Announce the voice (see the skill)."
+        } else {
+            Write-Output "claudeTalk: talk mode ON for this session (voice: $name). Claude talks to you until you run /talk again."
+        }
     }
     "off" {
-        $content = $content -replace '(?m)^(\s*enabled\s*:\s*).*$', '${1}false'
-        $content | Set-Content $file -Encoding UTF8
-        Set-TalkFlag $false
-        Stop-Speech
-        Write-Output "claudeTalk: talk mode OFF (silence)."
+        Disable-TalkSession $sid
+        Stop-Speech $sid
+        Write-Output "claudeTalk: talk mode OFF for this session (silence)."
     }
     "status" {
-        $en = [regex]::Match($content, '(?m)^\s*enabled\s*:\s*(\S+)').Groups[1].Value
-        $st = Get-TalkState (Get-Location).Path
-        $estado = if ($en -eq 'true') { 'ON' } else { 'OFF' }
-        Write-Output ("claudeTalk: talk mode " + $estado + " | voice: " + $st.voice + " | speed: " + $st.rate + " | file: " + $file)
+        $estado = if ($sess.enabled) { 'ON' } else { 'OFF' }
+        $voice = Get-EffectiveVoice $sess
+        $others = Get-OtherVoices $sid
+        $rate = (Get-TalkState (Get-Location).Path $sid).rate
+        Write-Output ("claudeTalk: talk mode " + $estado + " in this session | voice: " + (Get-VoiceName $voice) + " (" + $voice + ") | speed: " + $rate + " | other sessions talking: " + $others.Count)
     }
 }

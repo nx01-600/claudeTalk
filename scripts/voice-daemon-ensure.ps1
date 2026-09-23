@@ -1,6 +1,7 @@
 # claudeTalk - voice-daemon-ensure.ps1
-# 'SessionStart' hook: registers this Claude Code session and leaves voice
-# dictation running in --auto mode if it isn't already. Idempotent and fast:
+# 'SessionStart' hook: registers this Claude Code session (for the daemon and
+# for per-session talk mode) and leaves voice dictation running in --auto mode
+# if it isn't already. Idempotent and fast:
 # Claude Code doesn't wait on the daemon.
 #
 # Lifecycle: the hook walks up its parent chain to the claude.exe that started
@@ -42,6 +43,17 @@ for ($i = 0; $i -lt 12 -and $current; $i++) {
     $current = $parent
 }
 if (-not $claudePid) { exit 0 }
+
+# --- tie this claude.exe to the session id (per-session talk mode) -------------
+# The `say` server and /talk only know their claude.exe; live.json tells them
+# which session that is. See the sessions notes in talk-common.ps1.
+try {
+    . (Join-Path $PSScriptRoot "talk-common.ps1")
+    $payload = Read-HookInput | ConvertFrom-Json
+    $script:ClaudePidCache = [int]$claudePid
+    Register-TalkSession $payload.session_id
+    Update-TalkFlag
+} catch {}
 
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 $known = @()
