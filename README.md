@@ -83,7 +83,7 @@ Click the gear on the pill (or right-click the tray icon → **Settings**).
 - **Transcription**: **Language** — Spanish / English / Auto.
 - **Turn off dictation**: shuts the daemon down completely, asks for confirmation.
 
-Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly.
+Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Claude can change any of them too: ask in your own words ("que no se mande solo con Enter", "que se vea cuando comparto pantalla", "ponle 5 segundos de silencio", "cambia el atajo a control alt espacio"). The talk skill runs `scriptsoice-toggle.ps1 set <setting> <value>` and the dictation app reloads the file within a second; `voice-toggle.ps1 settings` lists every value and option.
 
 ### Starting and stopping
 

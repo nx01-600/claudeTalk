@@ -1,31 +1,49 @@
 ---
 name: talk
-description: Controls claudeTalk talk mode. Turns it on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes Claude's voice, speaking speed or the dictation silence time. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change the voice, speed or silence time, e.g. "háblame", "respóndeme con voz", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "ponle 5 segundos de silencio".
-argument-hint: "[on|off|stop|voice <name>|rate <speed>|silence <seconds>]"
+description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice and speed, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word, visibility in screen sharing, theme, glass, overlay position, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "ponlo en tema claro", "cambia el atajo a control alt espacio".
+argument-hint: "[on|off|stop|settings|set <setting> <value>]"
 allowed-tools: Bash, mcp__plugin_claudeTalk_voice__say
 ---
 
-Pick the action from what the user asked (or from the arguments):
-- `on`: start talking out loud. `off`: turn talk mode off. `toggle`: plain /talk with no argument.
-- `stop`: be quiet right now but keep talk mode on ("cállate", "para", "ya entendí").
-- `voice NAME`: change Claude's voice. NAME is one of Salome, Gonzalo, Dalia, Jorge (Salomé and Dalia are women, Gonzalo and Jorge men; Salomé and Gonzalo are Colombian, Dalia and Jorge Mexican).
-- `rate SPEED`: change how fast Claude talks: slow, normal, fast, faster, or a percentage like +10% or -5%.
-- `silence SECONDS`: how long a pause ends a dictation (0.5 to 10, e.g. 4.5).
-
 Arguments: $ARGUMENTS
 
-Run with Bash, replacing ACTION (and VALUE when the action takes one):
+Everything runs through one script:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/voice-toggle.ps1" ACTION VALUE
+powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/voice-toggle.ps1" ACTION [SETTING] [VALUE]
 ```
 
-Then, depending on the output:
+## Talk mode
+- `on`: start talking out loud. `off`: turn talk mode off. `toggle`: plain /talk with no argument.
+- `stop`: be quiet right now but keep talk mode on ("cállate", "para", "ya entendí").
+
+## Settings: `set SETTING VALUE`
+Every change is saved at once and the dictation app applies it within a second: no restart, the next answer already uses it.
+
+| SETTING | VALUE | What it is |
+|---|---|---|
+| `voice` | Salome, Gonzalo, Dalia, Jorge | Claude's voice (Salomé and Dalia women, Gonzalo and Jorge men; Salomé/Gonzalo Colombian, Dalia/Jorge Mexican) |
+| `rate` | slow, normal, fast, faster, or +10% / -5% | how fast Claude talks |
+| `silence` | seconds, 0.5 to 10 (e.g. 4.5) | pause that ends a dictation |
+| `sensitivity` | 0 to 100 | mic sensitivity; higher picks up a softer voice, lower ignores background voices |
+| `hotkey` | keys joined by `+`: ctrl, shift, alt, win, lctrl, rshift, ralt..., space, tab, enter, f1-f12, letters, digits | dictation shortcut, e.g. `ctrl+alt+space` |
+| `sound` | on / off | chime when a recording starts |
+| `enter` | on / off | press Enter after pasting, so the dictated message is sent |
+| `wake` | on / off | start dictating by saying "Oye Claude" (only while talk mode is on) |
+| `share` | on / off | overlay visible in screen sharing and recordings |
+| `theme` | light / dark | overlay theme |
+| `glass` | 0 to 100 | glass effect intensity |
+| `position` | bottom / top | where the overlay appears |
+| `language` | es / en / auto | dictation language |
+
+`settings` prints every current value, to answer "how is it set up now?".
+
+## After running
 - **ON**: call the claudeTalk `say` tool with a short greeting in the user's language (for example "Listo, te escucho") and write one line confirming talk mode is on and that /talk turns it off. From now on follow the talk mode rules that arrive with each prompt.
 - **OFF**: write one line confirming talk mode is off. Don't call `say`.
-- **stop**: write nothing more than a very short acknowledgement.
-- **voice / rate set**: the change is live at once. Confirm with one short spoken sentence in the new voice (just write it if talk mode reads short answers, or use `say`).
-- **silence set**: confirm in one line. The dictation app picks it up within a second.
-- **unknown value**: tell the user the options the script listed.
+- **stop**: only a very short acknowledgement.
+- **set**: confirm in one short sentence in the user's language what changed. For `voice`/`rate`, that sentence already plays in the new voice.
+- **error** (unknown setting or value): tell the user the valid options the script printed.
 
-If the script is missing, edit the workspace's `.claude/claudetalk.local.md` and set `enabled: true` or `false` (create it with `enabled`, `skip_code: true` if needed).
+If the user asks for several changes at once, run `set` once per setting.
+Turning dictation off completely is not a setting: tell the user to use the gear's "Turn off dictation" button.

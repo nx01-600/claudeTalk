@@ -272,11 +272,17 @@ bridge.settings_changed.connect(_on_settings_changed)
 
 def _reload_config():
     """Picks up edits made outside the panel (Claude changing its voice)."""
-    for key, value in config.reload_if_changed().items():
+    changed = config.reload_if_changed()
+    if not changed:
+        return
+    for key, value in changed.items():
         bridge.settings_changed.emit(key, value)
-    bridge.panel.update()
-    if bridge.panel._companion is not None:
-        bridge.panel._companion.update()
+    for panel in (bridge.panel, bridge.panel._companion):
+        if panel is None:
+            continue
+        if panel.isVisible() and ("theme" in changed or "glass" in changed):
+            panel.refresh_background()
+        panel.update()
 
 
 config_watch = QTimer()
