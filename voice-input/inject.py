@@ -354,6 +354,30 @@ def is_claude_window(hwnd: int) -> bool:
     return claude_topic(hwnd) is not None
 
 
+_WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
+
+
+def find_claude_window() -> tuple[int, str | None]:
+    """The front-most visible window currently showing Claude Code, as
+    (window, topic), or (0, None). EnumWindows walks top-level windows in
+    z-order, so the first match is the one the user used last. Covers the
+    case where the daemon never saw a Claude window in front (e.g. it was
+    just restarted while the user was in another app)."""
+    found = []
+
+    def visit(hwnd, _):
+        if user32.IsWindowVisible(hwnd):
+            topic = claude_topic(hwnd)
+            if topic:
+                found.append((hwnd, topic))
+                return False
+        return True
+
+    user32.EnumWindows(_WNDENUMPROC(visit), 0)
+    return found[0] if found else (0, None)
+
+
 def _focus(hwnd: int) -> bool:
     """Brings `hwnd` to the front. Windows only lets the foreground process do
     that, so this borrows the foreground thread's input queue for a moment."""

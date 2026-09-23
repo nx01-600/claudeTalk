@@ -156,6 +156,11 @@ def _worker(woken: bool = False):
     global state
     hwnd = inject.get_foreground_window()
     target = last_claude_session
+    if woken and not inject.claude_topic(target[0]):
+        # Never seen in front since the daemon started (or that window is
+        # gone): take the front-most Claude Code window on screen.
+        target = inject.find_claude_window()
+        print(f"[wake] no tracked Claude session; using {target[1]!r}")
     bridge.recording_started.emit()
     ducker.start()
     if config.get("sound"):

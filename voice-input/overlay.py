@@ -328,8 +328,8 @@ HIDE_MS = 170
 
 # After the text is sent the whole pill shrinks into a glass circle (the
 # gear fades away, the bars fold into the middle) and a badge pops up inside
-# it: green check when it was pasted, amber "!" when it was only left on the
-# clipboard. It holds for a moment, then fades out.
+# it: green check when it was pasted, amber clipboard icon when it was only left on the
+# clipboard (a clipboard icon). It holds for a moment, then fades out.
 MORPH_MS = 340
 BADGE_R = 16.0
 BADGE_IN_MS = 260  # starts halfway through the morph
@@ -600,8 +600,8 @@ class RecordingOverlay(_GlassWindow):
             painter.fillPath(bar, self.style_.glyph(alpha))
 
     def _paint_badge(self, painter: QPainter, top: float):
-        """Colored disc that pops in, then a white check (or "!") drawn
-        stroke by stroke."""
+        """Colored disc that pops in, then a white check drawn stroke by
+        stroke (or a clipboard icon)."""
         ms = self._phase_ms() - MORPH_MS / 2
         if ms <= 0.0:
             return
@@ -634,12 +634,23 @@ class RecordingOverlay(_GlassWindow):
                     break
             painter.drawPath(path)
         else:
-            painter.drawLine(c + QPointF(0, -6.0), c + QPointF(0, -6.0 + 7.5 * draw))
-            if draw >= 1.0:
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QColor(255, 255, 255))
-                painter.drawEllipse(c + QPointF(0, 5.2), 1.6, 1.6)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
+            # Clipboard: the text is waiting there for a manual Ctrl+V.
+            painter.save()
+            painter.translate(c)
+            painter.scale(0.6 + 0.4 * draw, 0.6 + 0.4 * draw)
+            painter.setOpacity(draw)
+            pen.setWidthF(2.0)
+            painter.setPen(pen)
+            painter.drawRoundedRect(QRectF(-6.0, -6.0, 12.0, 14.5), 2.2, 2.2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 255, 255))
+            painter.drawRoundedRect(QRectF(-3.4, -8.4, 6.8, 4.4), 1.4, 1.4)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            pen.setWidthF(1.7)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(-2.8, 0.2), QPointF(2.8, 0.2))
+            painter.drawLine(QPointF(-2.8, 3.8), QPointF(1.2, 3.8))
+            painter.restore()
 
     def _paint_gear(self, painter: QPainter):
         c = self._gear_center()

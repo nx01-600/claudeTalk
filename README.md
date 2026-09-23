@@ -69,7 +69,7 @@ Adds a **claudeTalk** shortcut to the Start Menu, with the same icon shown in th
 
 1. Focus the window where you want the text (the Claude Code terminal, an editor, whatever).
 2. Tap **Ctrl + Shift + Space**. A soft chime plays and the pill appears.
-3. Talk. Once you stop for 2 seconds (or tap the chord again) it transcribes and pastes. The pill stays up while it transcribes (the bars ripple), then compacts into a glass circle (the gear fades away) with a green check inside when the text was pasted, or an amber "!" when it was only left on the clipboard, and fades out.
+3. Talk. Once you stop for 2 seconds (or tap the chord again) it transcribes and pastes. The pill stays up while it transcribes (the bars ripple), then compacts into a glass circle (the gear fades away) with a green check inside when the text was pasted, or an amber clipboard icon when it was only left on the clipboard, and fades out.
 
 If you switched windows in the meantime, it pastes nothing: the text stays on the clipboard for `Ctrl+V`.
 
