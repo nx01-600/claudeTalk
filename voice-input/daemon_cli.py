@@ -161,6 +161,7 @@ def _worker(woken: bool = False):
     if to_claude and not woken:
         print("[target] focus is on the desktop/taskbar; sending to the last Claude session")
     target = last_claude_session
+    target_pid = last_claude_pid
     if to_claude and not inject.claude_topic(target[0]):
         # Never seen in front since the daemon started (or that window is
         # gone): take the front-most Claude Code window on screen.
@@ -213,7 +214,9 @@ def _worker(woken: bool = False):
             # Tells Claude (and the talk hooks) this prompt was spoken, not typed.
             text = SPOKEN_MARK + text
         if to_claude:
-            ok = inject.paste_into_window(text, *target, press_enter=bool(config.get("auto_enter")))
+            ok = inject.paste_into_window(
+                text, *target, press_enter=bool(config.get("auto_enter")), pid=target_pid
+            )
         else:
             ok = inject.paste_text_if_focus_unchanged(text, hwnd, press_enter=bool(config.get("auto_enter")))
         bridge.finished.emit(ok)
@@ -244,16 +247,20 @@ def _on_press():
 # where a dictation started by "Oye Claude" is sent, wherever the focus is
 # by then. The topic tells the terminal's tabs apart.
 last_claude_session = (0, None)
+# Its claude.exe, found through its console title: the topic can change
+# later (Claude Code retitles the session as the talk goes on), the pid can't.
+last_claude_pid = None
 CLAUDE_WINDOW_POLL_MS = 500
 
 
 def _track_claude_window():
-    global last_claude_session
+    global last_claude_session, last_claude_pid
     hwnd = inject.get_foreground_window()
     topic = inject.claude_topic(hwnd)
     if topic and (hwnd, topic) != last_claude_session:
         last_claude_session = (hwnd, topic)
-        print(f"[wake] Claude session: {topic!r}")
+        last_claude_pid = inject.console_pid(topic) or last_claude_pid
+        print(f"[wake] Claude session: {topic!r} (pid {last_claude_pid})")
 
 
 claude_window_timer = QTimer()

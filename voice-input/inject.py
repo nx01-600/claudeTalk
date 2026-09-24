@@ -15,6 +15,7 @@ reason, the user can paste it manually from what's already copied.
 
 import contextlib
 import ctypes
+import threading
 import time
 import unicodedata
 from ctypes import wintypes
@@ -342,7 +343,11 @@ def claude_topic(hwnd: int) -> str | None:
     the active tab's title."""
     if not hwnd or not user32.IsWindow(hwnd):
         return None
-    title = window_title(hwnd).strip()
+    return topic_from_title(window_title(hwnd))
+
+
+def topic_from_title(title: str) -> str | None:
+    title = title.strip()
     if len(title) > 2 and title[1] == " " and unicodedata.category(title[0]) in SYMBOL_CATEGORIES:
         return title[2:].strip()
     if "Claude Code" in title:
@@ -403,7 +408,11 @@ def _focus(hwnd: int) -> bool:
     attached = bool(fg_thread and fg_thread != this_thread and user32.AttachThreadInput(this_thread, fg_thread, True))
     try:
         user32.BringWindowToTop(hwnd)
-        user32.SetForegroundWindow(hwnd)
+        if not user32.SetForegroundWindow(hwnd):
+            # Windows' foreground lock: a keystroke from this process counts
+            # as "the user just did something here" and lifts it.
+            _send_keys([(VK_MENU, False), (VK_MENU, True)])
+            user32.SetForegroundWindow(hwnd)
     finally:
         if attached:
             user32.AttachThreadInput(this_thread, fg_thread, False)
@@ -471,18 +480,229 @@ def _invisible(hwnd: int):
         user32.RedrawWindow(hwnd, None, None, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME)
 
 
-def paste_into_window(text: str, hwnd: int, topic: str | None, press_enter: bool = False) -> bool:
-    """Pastes `text` into the Claude Code session `topic` living in `hwnd`,
-    even if the user is in another window or another tab of that terminal:
+# --- typing straight into a Claude Code console, with no focus at all ---
+#
+# Bringing the terminal to the front fails when the foreground app won't let
+# go: a game in a borderless or fullscreen window, anything running as
+# admin, or Windows' own foreground lock. Every claude.exe owns a console
+# (a ConPTY behind Warp or Windows Terminal) whose title is the session's
+# title, even for a tab in the background. Attaching to that console and
+# writing key events into its input buffer reaches the session without
+# touching the focus, the tabs or the window.
+
+TH32CS_SNAPPROCESS = 0x00000002
+KEY_EVENT = 0x0001
+GENERIC_READ = 0x80000000
+GENERIC_WRITE = 0x40000000
+FILE_SHARE_READ_WRITE = 0x00000003
+OPEN_EXISTING = 3
+INVALID_HANDLE = ctypes.c_void_p(-1).value
+SCAN_RETURN = 0x1C
+CONSOLE_ENTER_DELAY_S = 0.25  # after the text, so Claude Code doesn't read the Enter as part of a paste
+
+
+class PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ULONG_PTR),
+        ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", wintypes.LONG),
+        ("dwFlags", wintypes.DWORD),
+        ("szExeFile", wintypes.WCHAR * 260),
+    ]
+
+
+class KEY_EVENT_RECORD(ctypes.Structure):
+    _fields_ = [
+        ("bKeyDown", wintypes.BOOL),
+        ("wRepeatCount", wintypes.WORD),
+        ("wVirtualKeyCode", wintypes.WORD),
+        ("wVirtualScanCode", wintypes.WORD),
+        ("UnicodeChar", wintypes.WCHAR),
+        ("dwControlKeyState", wintypes.DWORD),
+    ]
+
+
+class _EVENTunion(ctypes.Union):
+    # KEY_EVENT_RECORD is 16 bytes, the largest of the event records.
+    _fields_ = [("KeyEvent", KEY_EVENT_RECORD)]
+
+
+class INPUT_RECORD(ctypes.Structure):
+    _fields_ = [("EventType", wintypes.WORD), ("Event", _EVENTunion)]
+
+
+kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+kernel32.AttachConsole.argtypes = [wintypes.DWORD]
+kernel32.GetConsoleTitleW.argtypes = [wintypes.LPWSTR, wintypes.DWORD]
+kernel32.SetConsoleCtrlHandler.argtypes = [ctypes.c_void_p, wintypes.BOOL]
+kernel32.CreateFileW.restype = wintypes.HANDLE
+kernel32.CreateFileW.argtypes = [
+    wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+]
+kernel32.WriteConsoleInputW.argtypes = [wintypes.HANDLE, ctypes.POINTER(INPUT_RECORD), wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+
+_console_lock = threading.Lock()
+
+
+def _claude_code_pids() -> list[int]:
+    """Every claude.exe running now, except the Claude desktop app (also
+    Claude.exe, installed under WindowsApps). Headless workers pass too:
+    their console's title never matches a session's topic."""
+    snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == INVALID_HANDLE:
+        return []
+    pids = []
+    entry = PROCESSENTRY32W(dwSize=ctypes.sizeof(PROCESSENTRY32W))
+    try:
+        ok = kernel32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if entry.szExeFile.lower() == "claude.exe":
+                pids.append(entry.th32ProcessID)
+            ok = kernel32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snap)
+    return [pid for pid in pids if "\\windowsapps\\" not in _process_path(pid).lower()]
+
+
+def _process_path(pid: int) -> str:
+    process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not process:
+        return ""
+    try:
+        size = wintypes.DWORD(1024)
+        buf = ctypes.create_unicode_buffer(size.value)
+        return buf.value if kernel32.QueryFullProcessImageNameW(process, 0, buf, ctypes.byref(size)) else ""
+    finally:
+        kernel32.CloseHandle(process)
+
+
+@contextlib.contextmanager
+def _attached(pid: int):
+    """Attaches this process (pythonw: it has no console of its own) to
+    `pid`'s console for the duration. Ctrl+C in that console is ignored
+    meanwhile, so it can't take the daemon down with it."""
+    kernel32.FreeConsole()
+    if not kernel32.AttachConsole(pid):
+        yield False
+        return
+    kernel32.SetConsoleCtrlHandler(None, True)
+    try:
+        yield True
+    finally:
+        kernel32.FreeConsole()
+        kernel32.SetConsoleCtrlHandler(None, False)
+
+
+def _console_title() -> str:
+    buf = ctypes.create_unicode_buffer(1024)
+    kernel32.GetConsoleTitleW(buf, 1024)
+    return buf.value
+
+
+def claude_consoles() -> list[tuple[int, str]]:
+    """(pid, topic) of every Claude Code session, read from its console."""
+    found = []
+    with _console_lock:
+        for pid in _claude_code_pids():
+            with _attached(pid) as ok:
+                topic = topic_from_title(_console_title()) if ok else None
+            if topic:
+                found.append((pid, topic))
+    return found
+
+
+def _key_records(chars: str, vk: int = 0, scan: int = 0) -> list[INPUT_RECORD]:
+    records = []
+    for ch in chars:
+        for down in (True, False):
+            key = KEY_EVENT_RECORD(down, 1, vk, scan, ch, 0)
+            records.append(INPUT_RECORD(KEY_EVENT, _EVENTunion(KeyEvent=key)))
+    return records
+
+
+def _write_input(handle, records: list[INPUT_RECORD]) -> bool:
+    array = (INPUT_RECORD * len(records))(*records)
+    written = wintypes.DWORD()
+    return bool(kernel32.WriteConsoleInputW(handle, array, len(records), ctypes.byref(written))) and written.value == len(records)
+
+
+def console_pid(topic: str | None) -> int | None:
+    """The claude.exe whose console is titled `topic` right now."""
+    return next((pid for pid, t in claude_consoles() if t == topic), None) if topic else None
+
+
+def type_into_console(text: str, topic: str | None, press_enter: bool = False, pid: int | None = None) -> bool:
+    """Types `text` into a Claude Code session (any window, any tab, focus
+    untouched): `pid` if that session is still open, since Claude Code
+    retitles a session as the talk goes on; else the one titled `topic`;
+    with neither, only when exactly one session is open, since then
+    there's no doubt which one is meant."""
+    sessions = claude_consoles()
+    if pid in {p for p, _ in sessions}:
+        matches = [pid]
+    elif topic:
+        matches = [p for p, t in sessions if t == topic]
+    else:
+        matches = [p for p, _ in sessions]
+    if not matches or (not topic and len(matches) > 1):
+        print(f"[diag] console: {len(matches)} session(s) for {topic!r} among {[t for _, t in sessions]}")
+        return False
+    pid = matches[0]
+    # WriteConsoleInputW takes UTF-16 code units: an emoji goes as its two halves.
+    units = text.encode("utf-16-le")
+    chars = "".join(chr(int.from_bytes(units[i:i + 2], "little")) for i in range(0, len(units), 2))
+    with _console_lock, _attached(pid) as ok:
+        if not ok:
+            print(f"[diag] console: could not attach to claude.exe pid={pid}")
+            return False
+        handle = kernel32.CreateFileW(
+            "CONIN$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ_WRITE, None, OPEN_EXISTING, 0, None
+        )
+        if not handle or handle == INVALID_HANDLE:
+            print(f"[diag] console: no input buffer for pid={pid}")
+            return False
+        try:
+            if not _write_input(handle, _key_records(chars)):
+                print(f"[diag] console: WriteConsoleInput failed (GetLastError={ctypes.get_last_error()})")
+                return False
+            if press_enter:
+                time.sleep(CONSOLE_ENTER_DELAY_S)
+                _write_input(handle, _key_records("\r", VK_RETURN, SCAN_RETURN))
+        finally:
+            kernel32.CloseHandle(handle)
+    print(f"[console] typed into claude.exe pid={pid} ({topic!r})")
+    return True
+
+
+def paste_into_window(
+    text: str, hwnd: int, topic: str | None, press_enter: bool = False, pid: int | None = None
+) -> bool:
+    """Sends `text` to the Claude Code session `topic` living in `hwnd`,
+    wherever the user is. When that terminal is not in front it types into
+    the session's console, with no focus change; if that can't be done, it
     jumps there (cycling tabs if needed), pastes (and presses Enter), then
-    puts the tab and the focus back. `text` is left on the clipboard either
-    way, and nothing is typed anywhere unless that session is found. When
-    the terminal wasn't already in front, it stays invisible the whole time."""
+    puts the tab and the focus back, keeping the terminal invisible. `text`
+    is left on the clipboard either way, and nothing is typed anywhere
+    unless that session is found."""
     _set_clipboard_text(text)
+    previous = get_foreground_window()
+    in_front = bool(hwnd) and previous == hwnd and claude_topic(hwnd) == topic
+    if not in_front and type_into_console(text, topic, press_enter, pid):
+        return True
     if not hwnd or not topic or not user32.IsWindow(hwnd):
         print("[diag] wake: no Claude Code window seen yet; text left on the clipboard")
         return False
-    previous = get_foreground_window()
     if previous == hwnd:
         return _paste_into(text, hwnd, topic, previous, press_enter)
     with _invisible(hwnd):
