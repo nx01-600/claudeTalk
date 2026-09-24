@@ -1,6 +1,6 @@
 ---
 name: talk
-description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice and speed, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word and its phrase, speaking only to dictated messages, visibility in screen sharing, glass, overlay position, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "cambia el atajo a control alt espacio", "que la frase para activarte sea Hola Jarvis".
+description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice, speed and volume, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word and its phrase, speaking only to dictated messages, visibility in screen sharing, glass, overlay position, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "baja el volumen", "habla más duro", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "cambia el atajo a control alt espacio", "que la frase para activarte sea Hola Jarvis".
 argument-hint: "[on|off|stop|settings|set <setting> <value>]"
 allowed-tools: Bash, mcp__plugin_claudeTalk_voice__say
 ---
@@ -25,6 +25,7 @@ Every change is saved at once and the dictation app applies it within a second: 
 |---|---|---|
 | `voice` | Salome, Gonzalo, Dalia, Jorge, Elena, Alonso | Claude's voice in this session (Salomé, Dalia and Elena women, Gonzalo, Jorge and Alonso men; Salomé/Gonzalo Colombian, Dalia/Jorge Mexican, Elena Argentine, Alonso US neutral) |
 | `rate` | slow, normal, fast, faster, or +10% / -5% | how fast Claude talks |
+| `volume` | 0 to 100 | how loud Claude talks (100 = full) |
 | `silence` | seconds, 0.5 to 10 (e.g. 4.5) | pause that ends a dictation |
 | `sensitivity` | 0 to 100 | mic sensitivity; higher picks up a softer voice, lower ignores background voices |
 | `hotkey` | keys joined by `+`: ctrl, shift, alt, win, lctrl, rshift, ralt..., space, tab, enter, f1-f12, letters, digits | dictation shortcut, e.g. `ctrl+alt+space` |

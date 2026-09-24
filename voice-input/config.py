@@ -33,6 +33,7 @@ DEFAULTS = {
     # Claude's voice (talk mode). Read by scripts/talk-common.ps1 too.
     "tts_voice": "es-CO-GonzaloNeural",  # any edge-tts neural voice
     "tts_rate": "+0%",  # edge-tts rate: -15% | +0% | +20% | +40%
+    "tts_volume": 100,  # 0..100, loudness of Claude's voice (ffplay -volume)
 }
 
 KEY_NAMES = {

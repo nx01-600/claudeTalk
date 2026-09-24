@@ -308,10 +308,12 @@ function Get-TalkState($cwd, $sid) {
         return $default
     }
     $rate = "+0%"
+    $volume = 100
     $onlySpoken = $false
     $global = Read-JsonFile $script:TalkSettings
     if ($global) {
         if ($global.tts_rate) { $rate = $global.tts_rate }
+        if ($null -ne $global.tts_volume) { $volume = [int]$global.tts_volume }
         $onlySpoken = [bool]$global.speak_only_spoken
     }
     $sess = Get-SessionState $sid
@@ -321,6 +323,7 @@ function Get-TalkState($cwd, $sid) {
         enabled  = ($sid -and $sess.enabled)
         voice    = (Get-EffectiveVoice $sess)
         rate     = $rate
+        volume   = $volume
         skipCode = ((& $get "skip_code" "true") -eq "true")
         onlySpoken = $onlySpoken
         edge     = (& $get "edge_tts_path" "")
@@ -354,7 +357,7 @@ function Resolve-Ffplay($p) {
 function Add-Speech($text, $state) {
     if (-not $text -or -not $text.Trim()) { return }
     New-Item -ItemType Directory -Force -Path $script:TalkQueue | Out-Null
-    $item = @{ text = $text.Trim(); voice = $state.voice; rate = $state.rate; edge = $state.edge; ffplay = $state.ffplay; session = $state.session }
+    $item = @{ text = $text.Trim(); voice = $state.voice; rate = $state.rate; volume = $state.volume; edge = $state.edge; ffplay = $state.ffplay; session = $state.session }
     $name = "{0:D20}.json" -f [DateTime]::UtcNow.Ticks
     $json = $item | ConvertTo-Json -Compress
     [IO.File]::WriteAllText((Join-Path $script:TalkQueue $name), $json, (New-Object Text.UTF8Encoding($false)))

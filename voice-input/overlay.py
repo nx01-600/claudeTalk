@@ -1388,6 +1388,7 @@ class VoicePanel(SettingsPanel):
                 ],
             ),
             ("segment", "Speed", "tts_rate", [("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")]),
+            ("slider", "Volume", "tts_volume", None),
             ("toggle", lambda config: f"Start with “{config.get('wake_phrase')}”", "wake_word", None),
             ("text", "Wake phrase", "wake_phrase", None),
             ("toggle", "Speak only when I talk", "speak_only_spoken", None),
@@ -1396,7 +1397,18 @@ class VoicePanel(SettingsPanel):
     def _set(self, key: str, value):
         super()._set(key, value)
         if key in ("tts_voice", "tts_rate"):
-            tts.preview(self.config.get("tts_voice"), self.config.get("tts_rate"))
+            self._preview()
+
+    def mouseReleaseEvent(self, event):
+        # The volume slider saves on every step while dragging: play the
+        # sample once, when the knob is let go.
+        dragged = self._dragging_slider
+        super().mouseReleaseEvent(event)
+        if dragged is not None and self._rows[dragged][2] == "tts_volume":
+            self._preview()
+
+    def _preview(self):
+        tts.preview(self.config.get("tts_voice"), self.config.get("tts_rate"), self.config.get("tts_volume"))
 
 
 # --- bridge with the daemon ------------------------------------------------------

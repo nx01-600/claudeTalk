@@ -41,13 +41,14 @@ function Invoke-Item($file) {
             $pct = if ($rate -match '^([+-]\d+)%$') { [int]$Matches[1] } else { 0 }
             $rate = "{0:+0;-0}%" -f [math]::Max(-50, $pct - 15)
         }
+        $volume = if ($null -ne $item.volume) { [math]::Max(0, [math]::Min(100, [int]$item.volume)) } else { 100 }
         $txt = Join-Path $env:TEMP ("claudetalk_txt_" + [guid]::NewGuid().ToString("N") + ".txt")
         [IO.File]::WriteAllText($txt, $item.text, (New-Object Text.UTF8Encoding($false)))
         try {
             # Cut while we were preparing: Stop-Speech deleted the item.
             if (-not (Test-Path $file.FullName)) { return }
-            $line = '""{0}" --voice {1} --rate={2} --file "{3}" --write-media - 2>nul | "{4}" -nodisp -autoexit -loglevel quiet -i -"' -f `
-                $edge, $item.voice, $rate, $txt, $ffplay
+            $line = '""{0}" --voice {1} --rate={2} --file "{3}" --write-media - 2>nul | "{4}" -nodisp -autoexit -loglevel quiet -volume {5} -i -"' -f `
+                $edge, $item.voice, $rate, $txt, $ffplay, $volume
             $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/d /s /c $line" -WindowStyle Hidden -PassThru
             Set-Content -Path $script:TalkPidFile -Value $p.Id
             Set-Content -Path $script:TalkPlayerSession -Value ([string]$item.session)

@@ -5,10 +5,10 @@
 # dictation app reloads that file by itself within a second.
 # Usage: voice-toggle.ps1 on|off|toggle|status|stop|settings
 #        voice-toggle.ps1 set <setting> <value>      (see $Help below)
-#        voice-toggle.ps1 voice|rate|silence <value> (shortcuts for set)
+#        voice-toggle.ps1 voice|rate|volume|silence <value> (shortcuts for set)
 
 param(
-    [Parameter(Mandatory=$true)][ValidateSet("on","off","toggle","status","stop","settings","set","voice","rate","silence")][string]$Action,
+    [Parameter(Mandatory=$true)][ValidateSet("on","off","toggle","status","stop","settings","set","voice","rate","volume","silence")][string]$Action,
     [string]$Value,
     [string]$Extra
 )
@@ -22,6 +22,7 @@ $Help = @"
 Settings (set <setting> <value>):
   voice        Salome | Gonzalo | Dalia | Jorge | Elena | Alonso   (Claude's voice in this session)
   rate         slow | normal | fast | faster | +N% | -N%   (Claude's speed)
+  volume       0-100                                     (Claude's volume)
   silence      seconds, 0.5 to 10   (pause that ends a dictation)
   sensitivity  0 to 100   (mic sensitivity; higher picks up a softer voice)
   hotkey       keys joined by +, e.g. ctrl+shift+space, alt+f2, lctrl+lshift+space
@@ -121,6 +122,7 @@ function Resolve-Setting($name, $v) {
         if ($plain -match '^[+-]\d{1,3}%$') { return @("tts_rate", $plain, "speed $plain") }
         throw "unknown speed '$v'. Options: slow, normal, fast, faster, or like +10%."
     }
+    if ($n -in "volume", "volumen") { $x = [int](ConvertTo-Number $v 0 100); return @("tts_volume", $x, "Claude's volume $x") }
     if ($n -in "silence", "silencio") {
         $ms = [int]([math]::Round((ConvertTo-Number $v 0.5 10) * 4) * 250)
         return @("silence_ms", $ms, ("silence cutoff {0:0.##} s" -f ($ms / 1000)))
@@ -154,7 +156,7 @@ function Resolve-Setting($name, $v) {
     throw "unknown setting '$name'.`n$Help"
 }
 
-if ($Action -in "voice", "rate", "silence") { $Extra = $Value; $Value = $Action; $Action = "set" }
+if ($Action -in "voice", "rate", "volume", "silence") { $Extra = $Value; $Value = $Action; $Action = "set" }
 
 if ($Action -eq "set") {
     try {
