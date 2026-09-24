@@ -29,7 +29,7 @@ import time
 
 import numpy as np
 
-from PySide6.QtCore import QEasingCurve, QObject, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QObject, QPoint, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
@@ -311,6 +311,7 @@ GEAR_HIT_R = 14
 
 SHOW_MS = 220
 HIDE_MS = 170
+DRAG_THRESHOLD = 4  # px the mouse moves before a press on the pill becomes a drag
 
 # After the text is sent the whole pill shrinks into a glass circle (the
 # gear fades away, the bars fold into the middle) and a badge pops up inside
@@ -367,6 +368,8 @@ class RecordingOverlay(_GlassWindow):
         self._phase_t0 = 0.0
         self._ok = True
         self._phase_token = 0
+        self._drag_from = None  # (global press point, window pos) while the button is down
+        self._dragging = False
 
         self._frame = QTimer(self)
         self._frame.setInterval(FRAME_MS)
@@ -381,6 +384,10 @@ class RecordingOverlay(_GlassWindow):
     # --- position -----------------------------------------------------------
 
     def _place(self):
+        saved = self._saved_drag_pos()
+        if saved is not None:
+            self.move(saved)
+            return
         screen = QApplication.primaryScreen().availableGeometry()
         x = screen.x() + (screen.width() - self.width()) // 2
         if self.style_.top:
@@ -388,6 +395,25 @@ class RecordingOverlay(_GlassWindow):
         else:
             y = screen.y() + screen.height() - self.height() - EDGE_MARGIN + INSET
         self.move(x, y)
+
+    def _saved_drag_pos(self) -> "QPoint | None":
+        """Where the user last dragged the pill, if they want it kept and it
+        still lands on a connected screen."""
+        config = self.style_.config
+        pos = config.get("drag_pos")
+        if not config.get("remember_drag") or not isinstance(pos, list) or len(pos) != 2:
+            return None
+        point = QPoint(int(pos[0]), int(pos[1]))
+        center = point + QPoint(self.width() // 2, self.height() // 2)
+        return point if QApplication.screenAt(center) is not None else None
+
+    def opens_down(self) -> bool:
+        """The settings panel opens below the pill when it sits in the upper
+        half of its screen (always the case for position "top")."""
+        visible = self.pill_rect_on_screen()
+        screen = QApplication.screenAt(visible.center().toPoint()) or QApplication.primaryScreen()
+        geo = screen.availableGeometry()
+        return visible.center().y() < geo.y() + geo.height() / 2
 
     def _pill_top(self) -> float:
         # bottom: slides in upward; top: slides in downward
@@ -484,10 +510,14 @@ class RecordingOverlay(_GlassWindow):
             self._hide_pending = False
             self.fade_out()
 
-    def restyle(self):
-        """After a glass/position change in settings."""
+    def restyle(self, key: str):
+        """After a glass/position change in settings. Picking Bottom/Top
+        forgets any dragged spot."""
+        if key == "position" and self.style_.config.get("drag_pos") is not None:
+            self.style_.config.set("drag_pos", None)
         if self.isVisible():
-            self._place()
+            if key == "position":
+                self._place()
             self.refresh_background()
             self.update()
 
@@ -524,21 +554,55 @@ class RecordingOverlay(_GlassWindow):
             self._gear_hover = hover
             base = 90.0 if self._panel.isVisible() else 0.0
             self._gear_angle_target = base + (30.0 if hover else 0.0)
-            self.setCursor(Qt.CursorShape.PointingHandCursor if hover else Qt.CursorShape.ArrowCursor)
+            self.setCursor(Qt.CursorShape.PointingHandCursor if hover else Qt.CursorShape.OpenHandCursor)
 
     def mouseMoveEvent(self, event):
+        if self._drag_from is not None:
+            start, origin = self._drag_from
+            delta = event.globalPosition().toPoint() - start
+            if not self._dragging and delta.manhattanLength() >= DRAG_THRESHOLD:
+                self._dragging = True
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                if self._panel.isVisible():
+                    self._panel.close_panel()
+            if self._dragging:
+                self.move(origin + delta)
+            return
         self._set_gear_hover(self._over_gear(event.position()))
 
     def leaveEvent(self, event):
-        self._set_gear_hover(False)
+        if self._drag_from is None:
+            self._set_gear_hover(False)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._over_gear(event.position()):
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._over_gear(event.position()):
             if self._panel.isVisible():
                 self._panel.close_panel()
             else:
                 self._panel.open_near(self)
                 self._gear_angle_target = 120.0
+            return
+        # anywhere else on the pill: drag it around
+        self._drag_from = (event.globalPosition().toPoint(), self.pos())
+        self._dragging = False
+
+    def mouseReleaseEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton or self._drag_from is None:
+            return
+        dragged = self._dragging
+        self._drag_from = None
+        self._dragging = False
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        if not dragged:
+            return
+        config = self.style_.config
+        if config.get("remember_drag"):
+            config.set("drag_pos", [self.x(), self.y()])
+        # the live glass follows by itself; the screen-share snapshot can't
+        # be retaken while the pill is on screen, so it keeps the old one
+        self.refresh_background()
 
     # --- painting ------------------------------------------------------------
 
@@ -712,6 +776,7 @@ class SettingsPanel(_GlassWindow):
         self._hover = None  # (row_index, part)
         self._pressed = None
         self._dragging_slider = None  # row index of the slider being dragged
+        self._opens_down = False  # set when opening: below the pill or above it
         self._confirming_quit = False
         self._capturing = False
         self._capture_acc: set[int] = set()
@@ -751,6 +816,7 @@ class SettingsPanel(_GlassWindow):
             ("group", "Appearance", None, None),
             ("slider", "Glass", "glass", None),
             ("segment", "Position", "position", [("bottom", "Bottom"), ("top", "Top")]),
+            ("toggle", "Remember dragged spot", "remember_drag", None),
             ("toggle", "Show in screen share", "show_in_capture", None),
             ("group", "Transcription", None, None),
             ("segment", "Language", "language", [("es", "Spanish"), ("en", "English"), ("auto", "Auto")]),
@@ -767,9 +833,9 @@ class SettingsPanel(_GlassWindow):
         x = self.x() + PANEL_W + gap
         if x + PANEL_W + INSET > screen.right() - 8:
             x = self.x() - PANEL_W - gap  # no room on the right: go left
-        # line up the bottoms (or the tops when the pill sits at the top)
+        # line up the bottoms (or the tops when the panel opens downward)
         y = self._anchor_y
-        if not self.style_.top:
+        if not self._opens_down:
             y += self._content_height() - self._companion._content_height()
         self._companion._open_at(x, y)
 
@@ -806,10 +872,11 @@ class SettingsPanel(_GlassWindow):
     # --- open / close -----------------------------------------------------
 
     def open_near(self, pill: "RecordingOverlay"):
-        screen = QApplication.primaryScreen().availableGeometry()
         visible = pill.pill_rect_on_screen()
+        screen = (QApplication.screenAt(visible.center().toPoint()) or QApplication.primaryScreen()).availableGeometry()
         x = int(visible.right() - PANEL_W - INSET)
-        if self.style_.top:
+        self._opens_down = pill.opens_down()
+        if self._opens_down:
             y = int(visible.bottom() + 6 - INSET)
         else:
             y = int(visible.top() - 6 - INSET - self._content_height())
@@ -821,6 +888,7 @@ class SettingsPanel(_GlassWindow):
         screen = QApplication.primaryScreen().availableGeometry()
         x = screen.x() + (screen.width() - self.width()) // 2
         y = screen.y() + screen.height() - self.height() - 96
+        self._opens_down = False
         self._open_at(x, y)
         self._open_companion()
 
@@ -1437,7 +1505,7 @@ class OverlayBridge(QObject):
         self.transcribing.connect(overlay.show_busy)
         self.finished.connect(overlay.show_result)
         self.level_changed.connect(overlay.set_level)
-        panel.settings_changed.connect(lambda key, _value: overlay.restyle() if key in ("glass", "position") else None)
+        panel.settings_changed.connect(lambda key, _value: overlay.restyle(key) if key in ("glass", "position") else None)
         panel.settings_changed.connect(self._on_capture_setting)
 
     def _on_capture_setting(self, key, _value):

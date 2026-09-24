@@ -28,6 +28,8 @@ DEFAULTS = {
     "speak_only_spoken": False,  # talk mode answers out loud only messages that were dictated
     "glass": 60,  # 0..100, glass effect intensity (blur + transparency)
     "position": "bottom",  # bottom | top
+    "remember_drag": False,  # the pill comes back where it was last dragged, instead of at "position"
+    "drag_pos": None,  # [x, y] window top-left of the last drag (only used with remember_drag)
     "show_in_capture": False,  # overlay visible in screen sharing (glass becomes a snapshot)
     "language": "es",  # es | en | auto
     # Claude's voice (talk mode). Read by scripts/talk-common.ps1 too.

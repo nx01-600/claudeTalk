@@ -1,6 +1,6 @@
 ---
 name: talk
-description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice, speed and volume, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word and its phrase, speaking only to dictated messages, visibility in screen sharing, glass, overlay position, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "baja el volumen", "habla más duro", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "cambia el atajo a control alt espacio", "que la frase para activarte sea Hola Jarvis".
+description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice, speed and volume, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word and its phrase, speaking only to dictated messages, visibility in screen sharing, glass, overlay position, remembering where the overlay was dragged, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "baja el volumen", "habla más duro", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "cambia el atajo a control alt espacio", "que la frase para activarte sea Hola Jarvis".
 argument-hint: "[on|off|stop|settings|set <setting> <value>]"
 allowed-tools: Bash, mcp__plugin_claudeTalk_voice__say
 ---
@@ -36,7 +36,8 @@ Every change is saved at once and the dictation app applies it within a second: 
 | `spoken` | on / off | talk mode answers out loud only messages the user dictated (they start with 🎙️); typed ones get text only |
 | `share` | on / off | overlay visible in screen sharing and recordings |
 | `glass` | 0 to 100 | glass effect intensity |
-| `position` | bottom / top | where the overlay appears |
+| `position` | bottom / top | where the overlay appears (also forgets a dragged spot) |
+| `drag` | on / off | the overlay can be dragged anywhere with the mouse; on = it comes back where it was last dragged, off = it resets to `position` every time |
 | `language` | es / en / auto | dictation language |
 
 `settings` prints every current value, to answer "how is it set up now?".

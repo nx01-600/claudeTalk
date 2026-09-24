@@ -33,7 +33,8 @@ Settings (set <setting> <value>):
   spoken       on | off   (talk mode answers out loud only dictated messages)
   share        on | off   (overlay visible in screen sharing)
   glass        0 to 100   (glass effect intensity)
-  position     bottom | top
+  position     bottom | top   (also forgets a dragged spot)
+  drag         on | off   (the pill comes back where you last dragged it)
   language     es | en | auto   (dictation language)
 "@
 
@@ -147,6 +148,7 @@ function Resolve-Setting($name, $v) {
         if ($plain -match '^(top|arriba)') { return @("position", "top", "overlay at the top") }
         throw "position is bottom or top."
     }
+    if ($n -in "drag", "remember_drag", "arrastre") { $b = ConvertTo-Bool $v; return @("remember_drag", $b, "remember dragged spot $(Get-OnOff $b)") }
     if ($n -in "language", "idioma") {
         if ($plain -match '^(es|span|espa)') { return @("language", "es", "dictation in Spanish") }
         if ($plain -match '^(en|engl|ingl)') { return @("language", "en", "dictation in English") }
