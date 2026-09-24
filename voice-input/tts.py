@@ -11,6 +11,8 @@ from pathlib import Path
 
 COMMON = Path(__file__).resolve().parent.parent / "scripts" / "talk-common.ps1"
 SAMPLE = "Hola, así sueno cuando te hablo."
+# Played by the volume slider, so it sounds different from the voice/speed sample.
+VOLUME_SAMPLE = "Hola, este es el sonido de mi voz."
 CREATE_NO_WINDOW = 0x08000000
 
 
@@ -18,12 +20,12 @@ def _ps_quote(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def preview(voice: str, rate: str, volume: int = 100):
+def preview(voice: str, rate: str, volume: int = 100, sample: str = SAMPLE):
     if not COMMON.exists():
         return
     command = (
         f". {_ps_quote(str(COMMON))}; Stop-Speech; "
-        f"Add-Speech {_ps_quote(SAMPLE)} @{{ voice = {_ps_quote(voice)}; rate = {_ps_quote(rate)}; volume = {int(volume)}; edge = ''; ffplay = '' }}"
+        f"Add-Speech {_ps_quote(sample)} @{{ voice = {_ps_quote(voice)}; rate = {_ps_quote(rate)}; volume = {int(volume)}; edge = ''; ffplay = '' }}"
     )
     subprocess.Popen(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],

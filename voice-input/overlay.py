@@ -1405,10 +1405,10 @@ class VoicePanel(SettingsPanel):
         dragged = self._dragging_slider
         super().mouseReleaseEvent(event)
         if dragged is not None and self._rows[dragged][2] == "tts_volume":
-            self._preview()
+            self._preview(tts.VOLUME_SAMPLE)
 
-    def _preview(self):
-        tts.preview(self.config.get("tts_voice"), self.config.get("tts_rate"), self.config.get("tts_volume"))
+    def _preview(self, sample: str = tts.SAMPLE):
+        tts.preview(self.config.get("tts_voice"), self.config.get("tts_rate"), self.config.get("tts_volume"), sample)
 
 
 # --- bridge with the daemon ------------------------------------------------------
