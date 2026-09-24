@@ -12,7 +12,7 @@ from pathlib import Path
 COMMON = Path(__file__).resolve().parent.parent / "scripts" / "talk-common.ps1"
 SAMPLE = "Hola, así sueno cuando te hablo."
 # Played by the volume slider, so it sounds different from the voice/speed sample.
-VOLUME_SAMPLE = "Hola, este es el sonido de mi voz."
+VOLUME_SAMPLE = "Hola, este es el volumen de mi voz."
 CREATE_NO_WINDOW = 0x08000000
 
 
