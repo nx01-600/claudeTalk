@@ -27,7 +27,8 @@ Settings (set <setting> <value>):
   hotkey       keys joined by +, e.g. ctrl+shift+space, alt+f2, lctrl+lshift+space
   sound        on | off   (chime when recording starts)
   enter        on | off   (press Enter after pasting = send the message)
-  wake         on | off   (start dictating by saying "Oye Claude")
+  wake         on | off   (start dictating by saying the wake phrase)
+  phrase       any words, e.g. "Hola Jarvis"   (the wake phrase; default "Oye Claude")
   spoken       on | off   (talk mode answers out loud only dictated messages)
   share        on | off   (overlay visible in screen sharing)
   glass        0 to 100   (glass effect intensity)
@@ -130,6 +131,12 @@ function Resolve-Setting($name, $v) {
     if ($n -in "sound", "sonido") { $b = ConvertTo-Bool $v; return @("sound", $b, "start chime $(Get-OnOff $b)") }
     if ($n -in "enter", "auto_enter", "send") { $b = ConvertTo-Bool $v; return @("auto_enter", $b, "send with Enter $(Get-OnOff $b)") }
     if ($n -in "wake", "wake_word", "oye") { $b = ConvertTo-Bool $v; return @("wake_word", $b, "Oye Claude $(Get-OnOff $b)") }
+    if ($n -in "phrase", "wake_phrase", "frase") {
+        $p = (([string]$v).Trim() -replace '\s+', ' ')
+        if (-not $p) { throw "the wake phrase can't be empty." }
+        if ($p.Length -gt 40) { throw "the wake phrase is 40 characters at most." }
+        return @("wake_phrase", $p, "wake phrase `"$p`"")
+    }
     if ($n -in "spoken", "speak_only_spoken", "solo_voz") { $b = ConvertTo-Bool $v; return @("speak_only_spoken", $b, "speak only to dictated messages $(Get-OnOff $b)") }
     if ($n -in "share", "show_in_capture", "capture") { $b = ConvertTo-Bool $v; return @("show_in_capture", $b, "visible in screen share $(Get-OnOff $b)") }
     if ($n -in "theme", "tema") { throw "there is no theme setting any more: the overlay is always dark glass." }

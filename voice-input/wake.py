@@ -14,6 +14,7 @@ listening, so the user can call it over Claude's voice, but only the full
 """
 
 import ctypes
+import difflib
 import os
 import re
 import threading
@@ -66,10 +67,35 @@ def _normalize(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text).split())
 
 
-def is_wake_phrase(text: str, strict: bool = False) -> bool:
+DEFAULT_PHRASE = "oye claude"
+# A custom phrase counts when the burst starts (after up to two stray words)
+# or ends with words this close to it: Whisper rarely writes a phrase it
+# wasn't primed for letter by letter.
+PHRASE_SIMILARITY = 0.75
+PHRASE_LEAD_WORDS = 2
+
+
+def _matches_custom(text: str, phrase: str) -> bool:
+    words, target = text.split(), phrase.split()
+    n = len(target)
+    starts = set(range(min(PHRASE_LEAD_WORDS, len(words) - n) + 1)) | {len(words) - n}
+    for start in starts:
+        if start < 0:
+            continue
+        window = " ".join(words[start:start + n])
+        if difflib.SequenceMatcher(None, window, phrase).ratio() >= PHRASE_SIMILARITY:
+            return True
+    return False
+
+
+def is_wake_phrase(text: str, strict: bool = False, phrase: str = DEFAULT_PHRASE) -> bool:
     """strict: only the full "oye/hey + name" form (used while Claude is
-    talking, when the mic also hears Claude's voice)."""
+    talking, when the mic also hears Claude's voice). `phrase` is the one set
+    in the gear; "Oye Claude" keeps its own tuned matching below."""
     text = _normalize(text)
+    phrase = _normalize(phrase or DEFAULT_PHRASE)
+    if phrase != DEFAULT_PHRASE:
+        return _matches_custom(text, phrase)
     if WAKE_RE.search(text):
         return True
     if strict:
@@ -112,7 +138,8 @@ def claude_is_talking() -> bool:
 
 
 class WakeListener:
-    def __init__(self, transcriber, on_wake, should_listen, is_busy, get_margin, get_language):
+    def __init__(self, transcriber, on_wake, should_listen, is_busy, get_margin, get_language, get_phrase):
+        self._get_phrase = get_phrase
         self._transcriber = transcriber
         self._on_wake = on_wake
         self._should_listen = should_listen
@@ -136,7 +163,7 @@ class WakeListener:
         while not self._stop.is_set():
             on = self._should_listen()
             if on != was_on:
-                print(f"[wake] {'listening for Oye Claude' if on else 'off'}")
+                print(f"[wake] {f'listening for {self._get_phrase()!r}' if on else 'off'}")
                 was_on = on
             if self._paused():
                 self._stop.wait(0.5)
@@ -214,7 +241,7 @@ class WakeListener:
             return False
         if not text:
             return False
-        hit = is_wake_phrase(text, strict)
+        hit = is_wake_phrase(text, strict, self._get_phrase())
         print(f"[wake] heard {text!r}{' -> wake' if hit else ''}")
         if hit and not self._paused():
             self._on_wake()

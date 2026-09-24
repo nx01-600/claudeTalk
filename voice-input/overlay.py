@@ -31,10 +31,11 @@ import numpy as np
 
 from PySide6.QtCore import QEasingCurve, QObject, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap, QTransform
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 import config as cfg
 import hotkey as hk
+import inject
 import tts
 
 WS_EX_NOACTIVATE = 0x08000000
@@ -668,6 +669,7 @@ SEG_MIN_W = 58
 SLIDER_W = 132
 SLIDER_KNOB_R = 8
 SLIDER_VALUE_W = 44  # value label to the left of a ranged slider
+TEXT_MAX_W = 150  # a text field's chip; longer text is elided
 
 
 class SliderRange:
@@ -718,6 +720,7 @@ class SettingsPanel(_GlassWindow):
         self._capture_deadline = 0.0
         self._toggle_t: dict[str, float] = {}
         self._phase = 0.0
+        self._editor = None  # _TextEditor, created on first use
 
         self._frame = QTimer(self)
         self._frame.setInterval(FRAME_MS)
@@ -844,6 +847,8 @@ class SettingsPanel(_GlassWindow):
         if not self.isVisible() or self._closing:
             return
         self._end_capture(commit=False)
+        if self._editor is not None:
+            self._editor.finish(commit=True)
         if self._companion is not None:
             self._companion.close_panel()
         self._closing = True
@@ -928,6 +933,9 @@ class SettingsPanel(_GlassWindow):
             label = self._hotkey_text()
             w = self._text_width(label, 9) + 24
             return QRectF(CONTROL_RIGHT - w, cy - 13, w, 26)
+        if kind == "text":
+            w = min(TEXT_MAX_W, max(90.0, self._text_width(str(self.config.get(self._rows[index][2])), 9) + 24))
+            return QRectF(CONTROL_RIGHT - w, cy - 13, w, 26)
         return rect
 
     def _text_width(self, text: str, pt: float) -> float:
@@ -969,7 +977,7 @@ class SettingsPanel(_GlassWindow):
                 return (index, None)
             if kind == "slider":
                 return (index, "control") if control.adjusted(-8, -6, 8, 6).contains(pos) else (index, None)
-            if kind in ("toggle", "hotkey"):
+            if kind in ("toggle", "hotkey", "text"):
                 return (index, "control") if control.adjusted(-4, -4, 4, 4).contains(pos) else (index, None)
         return (None, None)
 
@@ -1020,6 +1028,8 @@ class SettingsPanel(_GlassWindow):
         elif kind == "hotkey":
             if not self._capturing:
                 self._begin_capture()
+        elif kind == "text":
+            self._edit_text(index)
         elif kind == "danger":
             if part == "control":
                 self._confirming_quit = True
@@ -1126,7 +1136,7 @@ class SettingsPanel(_GlassWindow):
             self._paint_danger(painter, rect)
             return
         painter.setPen(st.text())
-        painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignmentFlag.AlignVCenter, label)
+        painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignmentFlag.AlignVCenter, label(self.config) if callable(label) else label)
         control = self._control_rect(index, rect)
         hovered = self._hover is not None and self._hover[0] == index and self._hover[1] is not None
         if kind == "toggle":
@@ -1137,6 +1147,8 @@ class SettingsPanel(_GlassWindow):
             self._paint_slider(painter, control, key, hovered, opts or PERCENT)
         elif kind == "hotkey":
             self._paint_hotkey(painter, control, hovered)
+        elif kind == "text":
+            self._paint_text(painter, control, key, hovered)
 
     def _paint_toggle(self, painter: QPainter, r: QRectF, key: str, hovered: bool):
         st = self.style_
@@ -1226,6 +1238,42 @@ class SettingsPanel(_GlassWindow):
         painter.setPen(st.text())
         painter.drawText(r, Qt.AlignmentFlag.AlignCenter, self._hotkey_text())
 
+    def _paint_text(self, painter: QPainter, r: QRectF, key: str, hovered: bool):
+        from PySide6.QtGui import QFontMetricsF
+
+        st = self.style_
+        chip = QPainterPath()
+        chip.addRoundedRect(r, 8, 8)
+        painter.fillPath(chip, st.fg(34 if hovered else 22))
+        font = QFont(FONT_FAMILY, 9)
+        painter.setFont(font)
+        painter.setPen(st.text())
+        text = QFontMetricsF(font).elidedText(str(self.config.get(key)), Qt.TextElideMode.ElideRight, r.width() - 20)
+        painter.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
+
+    # --- text fields ----------------------------------------------------
+    #
+    # The panel never takes the focus (so opening it doesn't pull the focus
+    # off the app being dictated into), so it can't be typed into. Editing
+    # opens a small field of its own right over the chip, which does.
+
+    def _edit_text(self, index: int):
+        key = self._rows[index][2]
+        chip = self._control_rect(index, self._rect_of(index))
+        editor = self._editor
+        if editor is None:
+            editor = self._editor = _TextEditor(self.style_)
+            editor.committed.connect(self._commit_text)
+        width = max(chip.width(), 200.0)
+        top_left = self.mapToGlobal(QPointF(INSET + chip.right() - width, INSET + chip.top()).toPoint())
+        editor.open(key, str(self.config.get(key)), top_left, int(width), int(chip.height()))
+
+    def _commit_text(self, key: str, value: str):
+        value = " ".join(value.split())
+        if value and value != self.config.get(key):
+            self._set(key, value)
+        self.update()
+
     def _paint_danger(self, painter: QPainter, rect: QRectF):
         st = self.style_
         painter.setFont(QFont(FONT_FAMILY, 9.5))
@@ -1257,6 +1305,55 @@ class SettingsPanel(_GlassWindow):
         painter.fillPath(confirm_path, st.fg(255 if hover_part == "confirm" else 225))
         painter.setPen(st.surface(255))
         painter.drawText(confirm, Qt.AlignmentFlag.AlignCenter, "Turn off")
+
+
+class _TextEditor(QLineEdit):
+    """A one-line field over a text row's chip. Enter or clicking away
+    saves, Esc drops the change."""
+
+    committed = Signal(str, str)
+
+    def __init__(self, style: Style):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setFont(QFont(FONT_FAMILY, 9))
+        self.setMaxLength(40)
+        self.setStyleSheet(
+            "QLineEdit { background: #2b2d31; color: #ffffff; border: 1px solid #8a8d93;"
+            " border-radius: 8px; padding: 0 8px; selection-background-color: #5b5e66; }"
+        )
+        self._key = None
+        self.returnPressed.connect(lambda: self.finish(commit=True))
+
+    def open(self, key: str, value: str, top_left, width: int, height: int):
+        self._key = key
+        self.setText(value)
+        self.selectAll()
+        self.setGeometry(top_left.x(), top_left.y(), width, height)
+        self.show()
+        # Windows only hands the focus to the process in front; the panel
+        # never was, so take it the way the paste does.
+        inject._focus(int(self.winId()))
+        self.activateWindow()
+        self.setFocus()
+
+    def finish(self, commit: bool):
+        if self._key is None:
+            return
+        key, self._key = self._key, None
+        self.hide()
+        if commit:
+            self.committed.emit(key, self.text())
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.finish(commit=False)
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.finish(commit=True)
 
 
 class VoicePanel(SettingsPanel):
@@ -1291,7 +1388,8 @@ class VoicePanel(SettingsPanel):
                 ],
             ),
             ("segment", "Speed", "tts_rate", [("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")]),
-            ("toggle", "Start with “Oye Claude”", "wake_word", None),
+            ("toggle", lambda config: f"Start with “{config.get('wake_phrase')}”", "wake_word", None),
+            ("text", "Wake phrase", "wake_phrase", None),
             ("toggle", "Speak only when I talk", "speak_only_spoken", None),
         ]
 

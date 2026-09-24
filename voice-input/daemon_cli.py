@@ -289,6 +289,7 @@ wake_listener = wake.WakeListener(
     is_busy=_busy,
     get_margin=lambda: _sensitivity(config.get("sensitivity"))[0],
     get_language=_language,
+    get_phrase=lambda: config.get("wake_phrase"),
 )
 wake_listener.start()
 
