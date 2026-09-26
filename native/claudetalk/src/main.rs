@@ -5,14 +5,19 @@
 //!   claudetalk toggle ACTION [SETTING] [VALUE]  /talk: talk mode and settings
 //!   claudetalk dictation                        /dictation: start the daemon
 //!   claudetalk preview VOICE RATE VOLUME [volume]  gear panel voice sample
+//!   claudetalk cleanup [--yes]                  remove what older versions left
 //!   claudetalk speaker                          speech queue drainer (internal)
 
+mod cleanup;
 mod daemon;
 mod edge;
 mod hooks;
 mod mcp;
 mod speaker;
 mod toggle;
+
+/// Models the dictation daemon loads (kept by `cleanup`).
+pub const MODEL_FILES: [&str; 2] = ["ggml-large-v3-turbo-q8_0.bin", "ggml-silero-v6.2.0.bin"];
 
 pub const SAMPLE_VOICE: &str = "Hola, as\u{ed} sueno cuando te hablo.";
 /// Played by the volume slider, so it sounds different from the voice sample.
@@ -29,6 +34,7 @@ fn main() {
             other => ct_core::log::log(&format!("unknown hook '{other}'")),
         },
         "mcp" => mcp::run(),
+        "cleanup" => std::process::exit(cleanup::run(arg(1) == "--yes")),
         "speaker" => speaker::run(),
         "toggle" => {
             let (out, code) = toggle::run(&args[1..]);
@@ -53,7 +59,7 @@ fn main() {
         }
         "--version" | "-V" => println!("claudetalk {}", env!("CARGO_PKG_VERSION")),
         _ => {
-            eprintln!("usage: claudetalk hook session-start|prompt|stop | mcp | toggle ... | dictation | preview VOICE RATE VOLUME [volume]");
+            eprintln!("usage: claudetalk hook session-start|prompt|stop | mcp | toggle ... | dictation | cleanup [--yes] | preview VOICE RATE VOLUME [volume]");
             std::process::exit(2);
         }
     }

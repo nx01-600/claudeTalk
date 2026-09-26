@@ -293,3 +293,9 @@ Fragile details that must survive:
     logical pixels.
   - The pill's hover cursors are the system hand and move cursors, not
     Qt's open and closed hands.
+- **Cleanup (v0.7):**
+  - `claudetalk cleanup [--yes]` removes older versions' leftovers: the Python
+    environment, old scripts, faster-whisper's model, unused model files and
+    old cached plugin copies. It also repoints stale shortcuts.
+  - While leftovers exist, the SessionStart hook outputs `additionalContext`
+    asking Claude to offer the cleanup. It costs no tokens once they're gone.

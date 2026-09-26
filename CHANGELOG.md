@@ -1,0 +1,46 @@
+# Changelog
+
+## 0.7.0 — native dictation, no Python left
+
+- **Dictation.** `bin\claudetalk-dictation.exe` (Rust) replaces the Python
+  daemon (`voice-input\`) with the same features and settings. Measured on
+  an RTX 5070 Ti laptop:
+
+  | | Python daemon | Rust daemon |
+  |---|---|---|
+  | RAM, idle | 279 MB | 13 MB |
+  | RAM, model loaded | 279 MB | 97 MB |
+  | VRAM | ~2.1 GB | 0.85 GB |
+  | CPU at rest | 4.5 % of a core | 0.4 % |
+  | Spanish WER on the benchmark | 5.86 % | 5.44 % |
+
+- **Speech-to-text.** Whisper large-v3-turbo q8_0 on whisper.cpp with Vulkan,
+  instead of faster-whisper fp16 on CUDA, so any GPU works (NVIDIA, AMD or
+  Intel). See `native/bench/RESULTS.md`.
+- **Wake phrase.** Silero VAD filters out sound bursts that aren't a voice
+  before Whisper runs.
+- **Chord.** Detected from raw keyboard events instead of polling every 15 ms.
+- **Install.** Nothing to install besides the plugin. The models (~0.9 GB)
+  download on first run.
+- **Cleanup.** `claudetalk.exe cleanup [--yes]` removes what older versions
+  left behind. The `SessionStart` hook tells Claude while leftovers exist.
+- **Fix.** "Turn off dictation" from the gear panel now also forgets the
+  manual-launch flag, as the tray's button did.
+- **Removed:** `voice-input\`, `setup-voice.ps1`, `dictation.vbs`,
+  `make-icon.py`.
+
+## 0.6.0 — native plugin binary
+
+- `bin\claudetalk.exe` (Rust) replaces every PowerShell script: hooks, the
+  `say` MCP server, `/talk` and the speech player.
+- **Hooks.** A prompt hook takes ~17 ms instead of 0.4–1.5 s.
+- **Speech.** Edge TTS is spoken natively. Playback starts with the first
+  chunk, and back-to-back phrases start in ~20 ms. edge-tts and ffmpeg are no
+  longer needed.
+- **Talk mode tokens.** The full rules go on the first prompt and every 8th
+  one; a one-line reminder goes on the rest.
+
+## 0.5.4 and earlier
+
+PowerShell hooks and a Python/PySide6 dictation daemon. Their behavior is the
+reference the native versions keep: see `native/SPEC.md`.

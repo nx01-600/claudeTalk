@@ -199,6 +199,12 @@ pub fn session_start() {
     sessions::update_talk_flag(&snap);
     remember_session_pid(claude);
     crate::daemon::ensure();
+    // Leftovers of an older version (Python venv, old plugin copies): let
+    // Claude offer the cleanup. Costs tokens only while they exist.
+    if crate::cleanup::leftovers_present() {
+        let out = json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": crate::cleanup::session_notice()}});
+        println!("{out}");
+    }
 }
 
 fn remember_session_pid(pid: u32) {

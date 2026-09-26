@@ -60,6 +60,26 @@ powershell -ExecutionPolicy Bypass -File C:\path\to\claudeTalk\scripts\install-a
 
 Adds a **claudeTalk** shortcut to the Start Menu, with the same icon shown in the system tray. Press the Windows key, type `claudeTalk`, hit Enter: dictation starts standalone, with no Claude Code session required, and keeps running until you turn it off from the gear or the tray icon — even if a Claude Code session later opens and closes.
 
+### Upgrading from v0.5 or earlier
+
+v0.6 and v0.7 replaced the PowerShell scripts and the Python dictation app with two native programs. The old pieces are not needed any more, but they don't delete themselves, and they are big: the Python environment is about 3 GB, and Claude Code's plugin cache may keep a copy of it for every older version (37 GB on the author's machine).
+
+```powershell
+"<plugin>\bin\claudetalk.exe" cleanup          # lists what would be removed, with sizes
+"<plugin>\bin\claudetalk.exe" cleanup --yes    # removes it
+```
+
+It only removes claudeTalk's own leftovers:
+- the Python environment (`voice-input\.venv`, `%LOCALAPPDATA%\claudeTalk\venv`, `venv-path.txt`);
+- old scripts;
+- faster-whisper's model in the Hugging Face cache;
+- model files this version doesn't load;
+- older plugin copies in `~\.claude\plugins\cache\claudeTalk`.
+
+It also repoints Start Menu and desktop shortcuts that still launch `dictation.vbs`. It doesn't uninstall ffmpeg or edge-tts, because other tools may use them; it only mentions them.
+
+You don't have to remember this: while leftovers exist, the `SessionStart` hook tells Claude, and Claude offers the cleanup once. You can also just ask ("limpia lo que dejó la versión vieja de claudeTalk").
+
 ## Usage
 
 ### Dictate
@@ -203,6 +223,7 @@ native/             Rust sources; SPEC.md is the behavior contract
 - TTS and hooks log: `%TEMP%\claudetalk.log`.
 - "Doesn't paste into that app but does into others": if the app runs as administrator and the daemon doesn't, Windows blocks the synthetic `Ctrl+V` (UIPI). Launch the daemon with the same privilege level.
 - Two instances can't coexist: the second one warns and exits.
+- Leftovers from older versions: `claudetalk.exe cleanup` (see [Upgrading](#upgrading-from-v05-or-earlier)).
 
 ## Development
 

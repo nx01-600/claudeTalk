@@ -1,6 +1,6 @@
 ---
 name: talk
-description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice, speed and volume, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word and its phrase, speaking only to dictated messages, visibility in screen sharing, glass, overlay position, remembering where the overlay was dragged, dictation language. Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "baja el volumen", "habla más duro", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "cambia el atajo a control alt espacio", "que la frase para activarte sea Hola Jarvis".
+description: Controls claudeTalk. Turns talk mode on or off (while on, Claude talks to the user out loud until turned off), stops the current speech, and changes ANY claudeTalk setting from the gear panel - Claude's voice, speed and volume, dictation silence time, mic sensitivity, hotkey, start chime, send with Enter, "Oye Claude" wake word and its phrase, speaking only to dictated messages, visibility in screen sharing, glass, overlay position, remembering where the overlay was dragged, dictation language. Also cleans up the files older claudeTalk versions left behind (old Python environment, old plugin copies). Use when the user runs /talk, or asks in any words to start or stop talking out loud, to be quiet for now, or to change any of those settings, e.g. "háblame", "ya no hables", "cállate", "cambia a la voz de Salomé", "habla más rápido", "baja el volumen", "habla más duro", "ponle 5 segundos de silencio", "que no se mande solo con Enter", "que se vea cuando comparto pantalla", "solo háblame cuando yo hable", "cambia el atajo a control alt espacio", "que la frase para activarte sea Hola Jarvis", "limpia lo que dejó la versión vieja de claudeTalk".
 argument-hint: "[on|off|stop|settings|set <setting> <value>]"
 allowed-tools: Bash, mcp__plugin_claudeTalk_voice__say
 ---
@@ -41,6 +41,9 @@ Every change is saved at once and the dictation app applies it within a second: 
 | `language` | es / en / auto | dictation language |
 
 `settings` prints every current value, to answer "how is it set up now?".
+
+## Cleaning up older versions
+Up to v0.5 claudeTalk used a Python environment (~3 GB) that the native versions no longer need, and Claude Code's cache may keep old plugin copies with it. Run `"${CLAUDE_PLUGIN_ROOT}/bin/claudetalk.exe" cleanup` to list what would go (with sizes), tell the user the total, and only after they agree run `"${CLAUDE_PLUGIN_ROOT}/bin/claudetalk.exe" cleanup --yes`. It only touches claudeTalk's own leftovers; ffmpeg and edge-tts are just mentioned, since other tools may use them.
 
 ## After running
 - **ON**: call the claudeTalk `say` tool with a short greeting in the user's language (for example "Listo, te escucho") and write one line confirming talk mode is on and that /talk turns it off. From now on follow the talk mode rules that arrive with each prompt.
