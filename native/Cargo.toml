@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = ["ct-core", "claudetalk"]
+
+[workspace.package]
+version = "0.6.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+fancy-regex = "0.19"
+unicode-normalization = "0.1"
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_ProcessStatus",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
