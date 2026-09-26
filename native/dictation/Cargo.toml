@@ -1,0 +1,51 @@
+[package]
+name = "claudetalk-dictation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "claudetalk-dictation"
+path = "src/main.rs"
+
+[features]
+default = ["vulkan"]
+vulkan = ["whisper-rs/vulkan"]
+
+[dependencies]
+ct-core = { path = "../ct-core" }
+serde_json.workspace = true
+regex.workspace = true
+unicode-normalization.workspace = true
+whisper-rs = "0.16"
+cpal = "0.18"
+rodio = { version = "0.22", default-features = false, features = ["playback"] }
+tiny-skia = "0.12"
+ab_glyph = "0.2"
+unicode-general-category = "1"
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
+
+[dependencies.windows-sys]
+version = "0.61"
+features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dwm",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Controls",
+  "Win32_System_Threading",
+  "Win32_System_LibraryLoader",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+]
+
+[build-dependencies]

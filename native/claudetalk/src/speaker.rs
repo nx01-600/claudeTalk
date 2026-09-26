@@ -4,7 +4,7 @@
 //! notification, so the next phrase starts without launching anything.
 
 use ct_core::lock::{wide, NamedMutex};
-use ct_core::queue::{self, Item, CUT_EVENT, SPEAKER_MUTEX};
+use ct_core::queue::{self, Item, CUT_EVENT, DUCKING_EVENT, SPEAKER_MUTEX, SPEAKING_EVENT};
 use ct_core::{log::log, paths};
 use rodio::buffer::SamplesBuffer;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
@@ -19,7 +19,48 @@ use windows_sys::Win32::Storage::FileSystem::{
     FindCloseChangeNotification, FindFirstChangeNotificationW, FindNextChangeNotification,
     FILE_NOTIFY_CHANGE_FILE_NAME,
 };
-use windows_sys::Win32::System::Threading::{CreateEventW, ResetEvent, WaitForSingleObject};
+use windows_sys::Win32::System::Threading::{CreateEventW, ResetEvent, SetEvent, WaitForSingleObject};
+
+/// Volume while the user dictates, as a fraction of the phrase's volume,
+/// and how fast it moves there (per 20 ms), so the dip is a fade.
+const DUCK_LEVEL: f32 = 0.3;
+const DUCK_STEP: f32 = 0.047;
+
+struct Handle(HANDLE);
+unsafe impl Send for Handle {}
+unsafe impl Sync for Handle {}
+
+/// Manual-reset events shared with the dictation daemon.
+fn named_event(name: &str, cell: &'static std::sync::OnceLock<Handle>) -> HANDLE {
+    cell.get_or_init(|| Handle(unsafe { CreateEventW(std::ptr::null(), 1, 0, wide(name).as_ptr()) })).0
+}
+
+fn speaking_event() -> HANDLE {
+    static E: std::sync::OnceLock<Handle> = std::sync::OnceLock::new();
+    named_event(SPEAKING_EVENT, &E)
+}
+
+fn ducked() -> bool {
+    static E: std::sync::OnceLock<Handle> = std::sync::OnceLock::new();
+    let h = named_event(DUCKING_EVENT, &E);
+    (!h.is_null() && unsafe { WaitForSingleObject(h, 0) } == WAIT_OBJECT_0) || paths::ducking_flag().exists()
+}
+
+/// Moves the player's volume one step toward full or ducked.
+struct Duck {
+    base: f32,
+    now: f32,
+}
+
+impl Duck {
+    fn step(&mut self, player: &Player) {
+        let target = if ducked() { self.base * DUCK_LEVEL } else { self.base };
+        if (self.now - target).abs() > 0.001 {
+            self.now += (target - self.now).clamp(-DUCK_STEP, DUCK_STEP);
+            player.set_volume(self.now);
+        }
+    }
+}
 
 /// How long the speaker waits for more phrases before exiting.
 const IDLE_EXIT: Duration = Duration::from_secs(120);
@@ -127,8 +168,14 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
         }
     }
     let (_, player) = audio.as_ref().unwrap();
-    player.set_volume(item.volume.clamp(0, 100) as f32 / 100.0);
-    unsafe { ResetEvent(cut) };
+    let base = item.volume.clamp(0, 100) as f32 / 100.0;
+    // A phrase that starts mid-dictation starts already ducked.
+    let mut duck = Duck { base, now: if ducked() { base * DUCK_LEVEL } else { base } };
+    player.set_volume(duck.now);
+    unsafe {
+        ResetEvent(cut);
+        SetEvent(speaking_event());
+    }
     let _ = fs::write(paths::player_pid_file(), std::process::id().to_string());
     let _ = fs::write(paths::player_session_file(), &item.session);
 
@@ -174,7 +221,8 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
             });
         }
     }
-    stream_to_player(player, rx, cut);
+    stream_to_player(player, rx, cut, &mut duck);
+    unsafe { ResetEvent(speaking_event()) };
     let _ = fs::remove_file(paths::player_pid_file());
     let _ = fs::remove_file(paths::player_session_file());
 }
@@ -182,7 +230,7 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
 /// Decodes mp3 as it arrives and queues it on the player in small blocks,
 /// so playback starts with the first chunk. Returns when it finished playing
 /// or was cut.
-fn stream_to_player(player: &Player, rx: Receiver<Vec<u8>>, cut: HANDLE) {
+fn stream_to_player(player: &Player, rx: Receiver<Vec<u8>>, cut: HANDLE, duck: &mut Duck) {
     let is_cut = || unsafe { WaitForSingleObject(cut, 0) } == WAIT_OBJECT_0;
     let reader = ChunkReader { rx: std::sync::Mutex::new(rx), buf: Vec::new(), pos: 0, total: 0 };
     let decoder = match Decoder::builder()
@@ -203,6 +251,7 @@ fn stream_to_player(player: &Player, rx: Receiver<Vec<u8>>, cut: HANDLE) {
         buf.push(sample);
         if buf.len() >= block {
             player.append(SamplesBuffer::new(channels, rate, std::mem::take(&mut buf)));
+            duck.step(player);
             if is_cut() {
                 player.clear();
                 return;
@@ -216,6 +265,7 @@ fn stream_to_player(player: &Player, rx: Receiver<Vec<u8>>, cut: HANDLE) {
         player.play();
     }
     while !player.empty() {
+        duck.step(player);
         if unsafe { WaitForSingleObject(cut, 20) } == WAIT_OBJECT_0 {
             player.clear();
             return;

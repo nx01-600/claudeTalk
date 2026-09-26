@@ -19,6 +19,10 @@ use windows_sys::Win32::System::Threading::{CreateEventW, SetEvent};
 
 pub const SPEAKER_MUTEX: &str = "Local\\claudetalk_speaker";
 pub const CUT_EVENT: &str = "Local\\claudetalk_cut";
+/// Manual-reset, set by the speaker while a phrase plays.
+pub const SPEAKING_EVENT: &str = "Local\\claudetalk_speaking";
+/// Manual-reset, set by the dictation daemon while the user dictates.
+pub const DUCKING_EVENT: &str = "Local\\claudetalk_ducking";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Item {
