@@ -1,0 +1,22 @@
+# STT benchmark for the dictation port (phase C). Separate workspace: it
+# builds whisper.cpp and needs CMake, LLVM and the Vulkan SDK.
+[package]
+name = "ct-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+default = ["vulkan"]
+vulkan = ["whisper-rs/vulkan"]
+cuda = ["whisper-rs/cuda"]
+
+[dependencies]
+whisper-rs = "0.16"
+hound = "3"
+unicode-normalization = "0.1"
+
+[profile.release]
+opt-level = 3

@@ -1,0 +1,20 @@
+Hazme un commit con los cambios del hook y súbelo al repositorio.
+Revisa por qué falla el pull request en la rama de desarrollo.
+Necesito que el script de TypeScript compile sin errores antes del deploy.
+Crea un contenedor de Docker para la base de datos de Postgres.
+Oye, el overlay se está quedando pegado cuando cambio de ventana, míralo.
+Actualiza la página de WordPress con el nuevo formulario de Elementor.
+Mueve la función de parseo al módulo de utilidades y agrega un test.
+¿Por qué el servidor de Rails devuelve un error quinientos en producción?
+Pon el volumen de la voz un poco más bajo y habla más despacio.
+Abre la terminal y corre los tests de integración otra vez.
+Quiero que la branch main quede limpia antes de hacer el merge.
+El endpoint de la API está tardando más de dos segundos en responder.
+Cambia el atajo de teclado a control alt espacio.
+Revisa los logs del daemon y dime qué está consumiendo tanta memoria.
+Agrega un README con la tabla de funciones y los requisitos.
+La transcripción con Whisper en la GPU debería tardar menos de un segundo.
+Borra las variables de entorno que ya no se usan en el archivo de configuración.
+Haz un refactor del componente de React para que use hooks.
+Configura GitHub Actions para compilar el ejecutable en cada tag.
+Listo, ya probé el cambio y funciona bien, sigue con lo siguiente.
