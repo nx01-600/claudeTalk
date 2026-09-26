@@ -1,4 +1,38 @@
-# claudeTalk
+<p align="center">
+  <img src="assets/logo.png" width="112" alt="claudeTalk logo">
+</p>
+
+<h1 align="center">claudeTalk</h1>
+
+<p align="center">
+  <b>Talk to Claude Code, and hear it talk back.</b><br>
+  Local Whisper dictation, a hands-free wake phrase and neural voices, in two small native programs for Windows.
+</p>
+
+<p align="center">
+  <a href="https://github.com/nx01-600/claudeTalk/releases/latest"><img src="https://img.shields.io/github/v/release/nx01-600/claudeTalk?style=flat-square&color=2f6f7a" alt="Release"></a>
+  <a href="https://github.com/nx01-600/claudeTalk/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/nx01-600/claudeTalk/build.yml?style=flat-square&label=build" alt="Build"></a>
+  <a href="https://github.com/nx01-600/claudeTalk/releases"><img src="https://img.shields.io/github/downloads/nx01-600/claudeTalk/total?style=flat-square&color=7a4a3a" alt="Downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/nx01-600/claudeTalk?style=flat-square" alt="MIT license"></a>
+  <br>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows 10 | 11">
+  <img src="https://img.shields.io/badge/Rust-native-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust">
+  <img src="https://img.shields.io/badge/whisper.cpp-Vulkan-A41E11?style=flat-square&logo=vulkan&logoColor=white" alt="whisper.cpp on Vulkan">
+  <img src="https://img.shields.io/badge/Claude%20Code-plugin-D97757?style=flat-square&logo=claude&logoColor=white" alt="Claude Code plugin">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/pill-record.png" height="80" alt="Recording pill">
+  &nbsp;
+  <img src="assets/screenshots/pill-done-ok.png" height="80" alt="Sent confirmation">
+</p>
+<p align="center">
+  <img src="assets/screenshots/panel-voice.png" width="360" alt="Claude's voice settings">
+  &nbsp;
+  <img src="assets/screenshots/panel-dictation.png" width="360" alt="Dictation settings">
+</p>
+
+---
 
 Voice for **Claude Code** on Windows, in both directions:
 
@@ -202,6 +236,7 @@ Decisions worth knowing (explained in the source comments):
 ```
 .claude-plugin/     plugin and local marketplace manifest
 assets/claudetalk.ico  Start Menu / tray icon (embedded in claudetalk-dictation.exe)
+assets/logo.png, assets/screenshots/  README images (from `claudetalk-dictation.exe --render-test`)
 bin/                claudetalk.exe, built from native/ (claudetalk-dictation.exe comes from the release)
 commands/           /voice /dictation
 skills/talk/        /talk: turns talk mode on and off, changes settings
