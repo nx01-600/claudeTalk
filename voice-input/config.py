@@ -32,10 +32,13 @@ DEFAULTS = {
     "drag_pos": None,  # [x, y] window top-left of the last drag (only used with remember_drag)
     "show_in_capture": False,  # overlay visible in screen sharing (glass becomes a snapshot)
     "language": "es",  # es | en | auto
-    # Claude's voice (talk mode). Read by scripts/talk-common.ps1 too.
-    "tts_voice": "es-CO-GonzaloNeural",  # any edge-tts neural voice
-    "tts_rate": "+0%",  # edge-tts rate: -15% | +0% | +20% | +40%
-    "tts_volume": 100,  # 0..100, loudness of Claude's voice (ffplay -volume)
+    # Claude's voice (talk mode). Read by bin/claudetalk.exe too.
+    "tts_voice": "es-CO-GonzaloNeural",  # any Edge neural voice
+    "tts_rate": "+0%",  # Edge TTS rate: -15% | +0% | +20% | +40%
+    "tts_volume": 100,  # 0..100, loudness of Claude's voice
+    # Edge version the TTS service is told it talks to; empty = the built-in
+    # one. Only needed if Microsoft starts rejecting the built-in version.
+    "edge_version": "",
 }
 
 KEY_NAMES = {

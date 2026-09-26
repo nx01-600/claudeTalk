@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "voice": {
-      "command": "powershell",
-      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/scripts/say-server.ps1"]
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/claudetalk.exe",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

@@ -1,0 +1,56 @@
+# Builds and tests the native binaries. On a v* tag it also attaches them to
+# the GitHub release and opens a PR that refreshes bin/ with the CI build.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: ["native/**", ".github/workflows/build.yml"]
+  pull_request:
+    paths: ["native/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Test
+        working-directory: native
+        run: cargo test --workspace
+      - name: Build
+        working-directory: native
+        run: cargo build --release --workspace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claudetalk-bin
+          path: native/target/release/*.exe
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: native/target/release/*.exe
+
+      - name: Refresh bin/
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: Copy-Item native/target/release/claudetalk.exe bin/ -Force
+      - uses: peter-evans/create-pull-request@v6
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          branch: ci/bin-${{ github.ref_name }}
+          base: main
+          title: "bin: CI build of ${{ github.ref_name }}"
+          body: Binaries in bin/ rebuilt by CI from the ${{ github.ref_name }} sources.
+          commit-message: "chore: bin/ from CI build of ${{ github.ref_name }}"
+          add-paths: bin/*.exe

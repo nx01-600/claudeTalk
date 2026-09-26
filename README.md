@@ -2,7 +2,7 @@
 
 Voice for **Claude Code** on Windows, in both directions:
 
-- **Claude speaks**: reads its responses out loud (Microsoft neural voices via `edge-tts`).
+- **Claude speaks**: reads its responses out loud (Microsoft Edge neural voices, streamed by a small native player).
 - **You dictate**: press a key chord, talk, and the text appears transcribed in the window you had focused. All local: Whisper runs on your GPU (or CPU), the audio never leaves your machine.
 
 Dictation comes with a floating *liquid glass* overlay (dark glass, white ink) with bars that follow your voice, and a settings panel from the gear icon.
@@ -33,7 +33,7 @@ Dictation comes with a floating *liquid glass* overlay (dark glass, white ink) w
 - [Claude Code](https://claude.com/claude-code).
 - Python 3.11 to 3.13 (for dictation).
 - NVIDIA GPU with CUDA 12 for transcription in tenths of a second. Without a GPU it works on CPU (several seconds per sentence).
-- For Claude's voice (TTS): `edge-tts` (`pip install edge-tts`, needs internet) and `ffmpeg` (`winget install Gyan.FFmpeg`).
+- For Claude's voice (TTS): nothing to install. The plugin ships `bin\claudetalk.exe` (about 3 MB), which talks to Microsoft's online voice service itself (needs internet).
 
 ## Installation
 
@@ -88,7 +88,7 @@ Click the gear on the pill (or right-click the tray icon → **Settings**).
 - **Transcription**: **Language** — Spanish / English / Auto.
 - **Turn off dictation**: shuts the daemon down completely, asks for confirmation.
 
-Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Claude can change any of them too: ask in your own words ("que no se mande solo con Enter", "que se vea cuando comparto pantalla", "ponle 5 segundos de silencio", "cambia el atajo a control alt espacio"). The talk skill runs `scripts\voice-toggle.ps1 set <setting> <value>` and the dictation app reloads the file within a second; `voice-toggle.ps1 settings` lists every value and option.
+Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Claude can change any of them too: ask in your own words ("que no se mande solo con Enter", "que se vea cuando comparto pantalla", "ponle 5 segundos de silencio", "cambia el atajo a control alt espacio"). The talk skill runs `bin\claudetalk.exe toggle set <setting> <value>` and the dictation app reloads the file within a second; `claudetalk.exe toggle settings` lists every value and option.
 
 ### Starting and stopping
 
@@ -99,7 +99,7 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Clau
 ### Talk mode (Claude's voice)
 
 - `/talk` turns it on **for that session** and stays on until you run `/talk` again there. Other open sessions are not affected, and a resumed session (`--continue`, `/clear`) keeps its state and voice. Saying it in your own words also works ("háblame", "ya no hables"): Claude invokes the skill itself. `/voice` shows the status.
-- While it is on, each prompt reminds Claude that you are listening. Claude then:
+- While it is on, the prompts remind Claude that you are listening: the full rules on the first prompt and every 8th one (and again after `/clear` or a compaction), a one-line reminder in between. Claude then:
   - writes short answers once, in plain sentences, and they are read aloud (no double generation);
   - for long or technical answers, speaks a 1-2 sentence summary ("I left the three steps on screen") with the `say` tool and writes the detail. The `say` call stays folded in the transcript: **Ctrl+O** shows what was said;
   - can speak while it works ("let me check the hook") because `say` plays in the background.
@@ -115,9 +115,9 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Clau
   - The detector is the Whisper model already loaded for dictation: no extra download. Short sound bursts are transcribed and checked for the phrase; silence costs nothing. On CPU-only machines each burst takes longer.
   - It goes deaf while Claude is speaking, so its own voice can't trigger it. Background music or video may still cause an occasional false start (it cancels itself after 6 seconds).
 - **Spoken messages are marked**: every dictation pasted into Claude Code starts with 🎙️, so Claude knows it was spoken (and reads past transcription slips). Turn on **Speak only when I talk** in the same panel and talk mode answers out loud only those: a message you type gets a silent, text-only answer, without turning talk mode off.
-- **Claude lowers its voice while you dictate**: if Claude is still talking when a recording starts, its volume dips (the ffplay player's volume in the Windows mixer) until the recording ends, and any phrase that starts meanwhile is read a bit slower. That keeps the mic from writing Claude's words into your message.
-- The on/off switch is per project, in `.claude/claudetalk.local.md` (`enabled`, `skip_code`).
-- Voices come from edge-tts: Microsoft Edge's "Read aloud" service. It's free and needs no key or account, but it isn't an official API, so Microsoft could limit or change it.
+- **Claude lowers its voice while you dictate**: if Claude is still talking when a recording starts, its volume dips (the player's volume in the Windows mixer) until the recording ends, and any phrase that starts meanwhile is read a bit slower. That keeps the mic from writing Claude's words into your message.
+- Per project, `.claude/claudetalk.local.md` can set `skip_code: false` so code blocks are read too.
+- Voices come from Microsoft Edge's "Read aloud" service (the same protocol as the `edge-tts` project). It's free and needs no key or account, but it isn't an official API, so Microsoft could limit or change it. If it starts rejecting requests, setting `"edge_version"` in `dictation.json` to a current Edge version usually fixes it without an update. The fixed phrases ("Te dejé la respuesta en pantalla", the gear samples) are cached in `%LOCALAPPDATA%\claudeTalk\tts-cache` and play instantly.
 
 ## Resource usage
 
@@ -142,9 +142,10 @@ Why it doesn't cost that all the time:
 
 ### Claude's voice (talk mode)
 
-- Each spoken phrase starts `edge-tts` (about 5 MB) and `ffplay` (about 25 MB). Together they peak around **30 MB of RAM** and exit when the phrase ends. Nothing stays resident.
+- One small native player (`claudetalk.exe speaker`, about **17 MB of RAM**) plays the queue. Audio starts with the first chunk of the stream, and the player stays up for two minutes after the last phrase so the next one starts at once; then it exits.
 - The speech itself is synthesized by Microsoft's online service, so it uses a little network bandwidth (a compressed MP3 stream) and no GPU.
-- Hooks run a short PowerShell process on each prompt and at the end of each answer (about 0.3 to 1 s of CPU), then exit.
+- Hooks run `claudetalk.exe` on each prompt and at the end of each answer: about **15-20 ms**, then it exits (the PowerShell hooks of v0.5 took 0.4-1.5 s).
+- The `say` MCP server is the same executable, a few MB per open session (v0.5 kept a ~70 MB PowerShell per session).
 
 ### Tokens added to your Claude conversation
 
@@ -153,8 +154,9 @@ claudeTalk adds text to what Claude reads only while talk mode is on in that ses
 | When | What gets added | About |
 |---|---|---|
 | Talk mode **off** | nothing, not even the hook's reminder | **0 tokens** |
-| Every prompt, talk mode **on** | the reminder rules for answering a listener | **~300 tokens** per prompt |
-| Plus, if the prompt was dictated (🎙️) | the note about transcription slips | **~75 tokens** more |
+| First prompt with talk mode **on**, then every 8th (and after `/clear` or a compaction) | the full rules for answering a listener | **~300 tokens** |
+| The other prompts, talk mode **on** | a one-line reminder of those rules | **~40 tokens** |
+| Plus, if the prompt was dictated (🎙️) | the note about transcription slips | **~75 tokens** with the full rules, **~25** with the reminder |
 | Typed prompt with "Speak only when I talk" on | a single line saying to answer in text only | **~70 tokens** |
 | Always (plugin installed) | the `talk` skill's one-line description in the skill list, and the `say` tool's short schema | **~200 + ~100 tokens**, fixed per conversation |
 | When the skill runs (`/talk`, changing a setting) | the skill's instructions | **~1,100 tokens**, only that turn |
@@ -186,17 +188,13 @@ Decisions worth knowing (all explained in the docstrings):
 .claude-plugin/     plugin and local marketplace manifest
 assets/claudetalk.ico  Start Menu / tray icon, generated by scripts/make-icon.py
 commands/           /voice /dictation
-skills/talk/        /talk: turns talk mode on and off
-.mcp.json           `voice` MCP server → say-server.ps1 (the `say` tool)
-hooks/hooks.json    UserPromptSubmit → talk-context.ps1   Stop → speak.ps1   SessionStart → voice-daemon-ensure.ps1
+skills/talk/        /talk: turns talk mode on and off, changes settings
+.mcp.json           `voice` MCP server → claudetalk.exe mcp (the `say` tool)
+hooks/hooks.json    UserPromptSubmit / Stop / SessionStart → claudetalk.exe hook prompt|stop|session-start
+bin/claudetalk.exe  native plugin binary built from native/: hooks, MCP server, /talk, speech player
+native/             Rust sources: ct-core (sessions, queue, transcript rules) and claudetalk; SPEC.md is the behavior contract
 scripts/
-  talk-common.ps1         shared helpers: state file, speech queue, cutting audio
-  say-server.ps1          MCP server with the `say` tool (queues a phrase)
-  talk-context.ps1        cuts audio on each prompt, injects the talk mode rules
-  speak.ps1               end of turn: picks what to speak; -Worker plays the queue (edge-tts | ffplay)
-  voice-toggle.ps1        talk mode on/off/toggle/status
   setup-voice.ps1         installs dictation (venv + dependencies + shortcut)
-  voice-daemon-ensure.ps1 launches the daemon in --auto mode if not already running
   dictation.vbs           manual launcher without a console window (the "app")
   install-app.ps1         adds the claudeTalk Start Menu shortcut
   make-icon.py            renders voice-input/icon.py into assets/claudetalk.ico
@@ -216,7 +214,7 @@ voice-input/
 ## Diagnostics
 
 - Dictation log (when running without a console): `%TEMP%\claudetalk-dictation.log`. Running it by hand in a terminal (`python voice-input\daemon_cli.py`) shows the same live, including a `[diag]` line for each paste with the target window, whether it's running elevated, and how many events `SendInput` accepted.
-- TTS log: `%TEMP%\claudetalk.log`.
+- TTS and hooks log: `%TEMP%\claudetalk.log`.
 - "Doesn't paste into that app but does into others": if the app runs as administrator and the daemon doesn't, Windows blocks the synthetic `Ctrl+V` (UIPI). Launch the daemon with the same privilege level.
 - Two instances can't coexist: the second one warns and exits.
 
@@ -232,6 +230,15 @@ python -m venv .venv
 ```
 
 If `voice-input\.venv` exists, both the hook and the launcher prefer it over the `%LOCALAPPDATA%` venv.
+
+The plugin binary is Rust (`native/`):
+
+```powershell
+cd native
+cargo test                                   # unit tests
+powershell -File tests\gen-golden.ps1        # optional: parity fixtures from your own transcripts (needs the v0.5.4 scripts)
+cargo build --release; copy target\release\claudetalk.exe ..\bin\
+```
 
 ## License
 

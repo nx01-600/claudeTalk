@@ -6,5 +6,5 @@ allowed-tools: ["Bash"]
 Check the talk mode status by running this command with Bash and report its output to the user as is:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/voice-toggle.ps1" status
+"${CLAUDE_PLUGIN_ROOT}/bin/claudetalk.exe" toggle status
 ```

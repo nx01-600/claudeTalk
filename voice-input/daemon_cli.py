@@ -139,8 +139,8 @@ def _should_cancel():
     return False
 
 
-# Prefix of every dictation sent to Claude Code. scripts/talk-context.ps1 and
-# scripts/speak.ps1 look for it: keep the three in sync.
+# Prefix of every dictation sent to Claude Code. The plugin's hooks
+# (native/ct-core/src/lib.rs, SPOKEN_MARK) look for it: keep them in sync.
 SPOKEN_MARK = "🎙️ "
 
 

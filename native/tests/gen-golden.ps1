@@ -2,16 +2,20 @@
 # cuts real Claude Code transcripts at random points, runs Read-Turn and
 # ConvertTo-Speech on each cut and saves input + expected output under
 # native/tests/golden-local/ (git-ignored: transcripts are private).
-# Needs the v0.5 scripts (git show v0.5.4:scripts/speak.ps1 works too).
+# The v0.5 scripts come from git history (commit 28448f5 = v0.5.4).
 #
-#   powershell -File native\tests\gen-golden.ps1 [-Speak <speak.ps1>] [-Cases 80]
+#   powershell -File native\tests\gen-golden.ps1 [-Cases 80]
 
-param(
-    [string]$Speak = (Join-Path $PSScriptRoot "..\..\scripts\speak.ps1"),
-    [int]$Cases = 80
-)
+param([int]$Cases = 80)
 
 $ErrorActionPreference = "Stop"
+$ref = Join-Path $env:TEMP "claudetalk-v054"
+New-Item -ItemType Directory -Force -Path $ref | Out-Null
+foreach ($f in "speak.ps1", "talk-common.ps1") {
+    $text = (git -C $PSScriptRoot show "28448f5:scripts/$f") -join "`n"
+    [IO.File]::WriteAllText((Join-Path $ref $f), $text, (New-Object Text.UTF8Encoding($true)))
+}
+$Speak = Join-Path $ref "speak.ps1"
 $src = Get-Content -Raw -Encoding UTF8 $Speak
 $common = Join-Path (Split-Path $Speak) "talk-common.ps1"
 . $common

@@ -10,7 +10,7 @@ Arguments: $ARGUMENTS
 Everything runs through one script:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/voice-toggle.ps1" ACTION [SETTING] [VALUE]
+"${CLAUDE_PLUGIN_ROOT}/bin/claudetalk.exe" toggle ACTION [SETTING] [VALUE]
 ```
 
 ## Talk mode

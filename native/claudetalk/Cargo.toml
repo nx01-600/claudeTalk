@@ -9,9 +9,9 @@ ct-core = { path = "../ct-core" }
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true
+unicode-normalization.workspace = true
 windows-sys.workspace = true
 tungstenite = { version = "0.30", features = ["native-tls"] }
 native-tls = "0.2"
 sha2 = "0.11"
-rodio = { version = "0.22", default-features = false, features = ["playback"] }
-symphonia = { version = "0.6", default-features = false, features = ["mp3"] }
+rodio = { version = "0.22", default-features = false, features = ["playback", "mp3"] }

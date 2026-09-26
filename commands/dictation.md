@@ -6,7 +6,7 @@ allowed-tools: ["Bash"]
 Run this command with Bash and then tell the user, in one line, that dictation is now running (or was already running) and what the default activation chord is (Ctrl + Shift + Space, changeable from the overlay's gear):
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/voice-daemon-ensure.ps1"
+"${CLAUDE_PLUGIN_ROOT}/bin/claudetalk.exe" dictation
 ```
 
-If the script didn't launch anything because dictation isn't installed, say that `scripts/setup-voice.ps1` from the plugin needs to be run once (see README).
+If it says dictation isn't installed, say that `scripts/setup-voice.ps1` from the plugin needs to be run once (see README).
