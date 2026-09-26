@@ -20,8 +20,9 @@
 - **Wake phrase.** Silero VAD filters out sound bursts that aren't a voice
   before Whisper runs.
 - **Chord.** Detected from raw keyboard events instead of polling every 15 ms.
-- **Install.** Nothing to install besides the plugin. The models (~0.9 GB)
-  download on first run.
+- **Install.** Nothing to install besides the plugin. The dictation app
+  (~60 MB, not kept in git) and the models (~0.9 GB) download on first run.
+  The dictation app comes from the GitHub release of the same version.
 - **Cleanup.** `claudetalk.exe cleanup [--yes]` removes what older versions
   left behind. The `SessionStart` hook tells Claude while leftovers exist.
 - **Fix.** "Turn off dictation" from the gear panel now also forgets the

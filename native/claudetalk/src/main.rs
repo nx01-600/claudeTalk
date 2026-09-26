@@ -6,11 +6,13 @@
 //!   claudetalk dictation                        /dictation: start the daemon
 //!   claudetalk preview VOICE RATE VOLUME [volume]  gear panel voice sample
 //!   claudetalk cleanup [--yes]                  remove what older versions left
+//!   claudetalk fetch-dictation [--start]        download the dictation app for this version
 //!   claudetalk speaker                          speech queue drainer (internal)
 
 mod cleanup;
 mod daemon;
 mod edge;
+mod fetch;
 mod hooks;
 mod mcp;
 mod speaker;
@@ -34,6 +36,7 @@ fn main() {
             other => ct_core::log::log(&format!("unknown hook '{other}'")),
         },
         "mcp" => mcp::run(),
+        "fetch-dictation" => std::process::exit(daemon::fetch_command(arg(1) == "--start")),
         "cleanup" => std::process::exit(cleanup::run(arg(1) == "--yes")),
         "speaker" => speaker::run(),
         "toggle" => {
@@ -45,7 +48,7 @@ fn main() {
             let msg = match daemon::ensure() {
                 "running" => "claudeTalk: dictation was already running.",
                 "started" => "claudeTalk: dictation started.",
-                "not-installed" => "claudeTalk: bin\\claudetalk-dictation.exe is missing: reinstall or update the plugin.",
+                "downloading" => "claudeTalk: downloading the dictation app for this version (~60 MB, once); it starts by itself when done.",
                 _ => "claudeTalk: dictation could not be started (see %TEMP%\\claudetalk.log).",
             };
             println!("{msg}");

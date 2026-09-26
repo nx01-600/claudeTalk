@@ -29,6 +29,19 @@ use windows_sys::Win32::System::Console::{SetStdHandle, STD_ERROR_HANDLE, STD_OU
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 
+/// The plugin's claudetalk.exe (voice previews): next to this exe in a
+/// local build, else where the plugin's hooks last ran from (they record it
+/// in %APPDATA%\claudeTalk\claudetalk-path.txt).
+pub fn claudetalk_exe() -> Option<std::path::PathBuf> {
+    let beside = std::env::current_exe().ok()?.parent()?.join("claudetalk.exe");
+    if beside.exists() {
+        return Some(beside);
+    }
+    let saved = std::fs::read_to_string(ct_core::paths::state_dir().join("claudetalk-path.txt")).ok()?;
+    let p = std::path::PathBuf::from(saved.trim());
+    p.exists().then_some(p)
+}
+
 fn redirect_output() {
     let path = std::env::temp_dir().join("claudetalk-dictation.log");
     if let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {

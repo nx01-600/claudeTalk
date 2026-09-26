@@ -8,8 +8,15 @@ there is no Python or PowerShell left.
 - `bin\claudetalk.exe`: hooks (`hook prompt|stop|session-start`), the `say` MCP
   server (`mcp`), `/talk` (`toggle`), the speech player (`speaker`) and
   `cleanup`.
-- `bin\claudetalk-dictation.exe`: the dictation daemon (tray, overlay, Whisper,
-  wake phrase).
+- `claudetalk-dictation.exe`: the dictation daemon (tray, overlay, Whisper,
+  wake phrase). It is ~60 MB, so it is **not in git**:
+  - `claudetalk.exe` downloads it from the GitHub release `v<its version>` into
+    `%LOCALAPPDATA%\claudeTalk\bin\<version>\` (`fetch-dictation`, which the
+    SessionStart hook also runs).
+  - A copy in `bin\`, next to `claudetalk.exe`, takes precedence (local
+    builds; git-ignored).
+  - The daemon finds `claudetalk.exe` through
+    `%APPDATA%\claudeTalk\claudetalk-path.txt`.
 - `native\`: the Rust sources.
   - `native\SPEC.md` is the behavior contract. Check it before changing
     behavior, and list intentional changes in its last section.
@@ -21,7 +28,18 @@ native\build.cmd . cargo build --release --workspace
 ```
 - `build.cmd` sets up MSVC + Ninja + LLVM + the Vulkan SDK and writes to
   `C:\ctb`. MSBuild fails on long paths in whisper.cpp's shader build.
-- Copy `C:\ctb\release\claudetalk*.exe` into `bin\`.
+- Copy `C:\ctb\release\claudetalk*.exe` into `bin\`. Only `claudetalk.exe` is
+  committed.
+
+## Releasing
+1. Bump the version in `native/Cargo.toml` and in both plugin manifests.
+2. Commit and push.
+3. Tag `v<version>` and push the tag.
+4. CI attaches both exes to that release.
+
+`claudetalk.exe` downloads the daemon of exactly its own version. A version
+without a release asset therefore has no dictation, until you upload one
+(`gh release upload`).
 - `claudetalk-dictation.exe --render-test DIR 1.5` draws the pill and the
   panels to PNGs. The real windows are excluded from screen capture.
 
@@ -43,7 +61,8 @@ If you find any of these, the user doesn't need them any more:
 - `scripts\setup-voice.ps1`, `dictation.vbs` or any `scripts\*.ps1` other than
   `install-app.ps1`;
 - the `faster-whisper-large-v3-turbo` model in `~\.cache\huggingface\hub`;
-- `~\.claude\plugins\cache\claudeTalk\claudeTalk\<old versions>`;
+- `~\.claude\plugins\cache\claudeTalk\claudeTalk\<old versions>`, and
+  `%LOCALAPPDATA%\claudeTalk\bin\<other versions>`;
 - Start Menu or desktop shortcuts that run `wscript ... dictation.vbs`.
 
 To clean up, run `bin\claudetalk.exe cleanup` to list what it would remove,

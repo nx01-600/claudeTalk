@@ -299,3 +299,12 @@ Fragile details that must survive:
     old cached plugin copies. It also repoints stale shortcuts.
   - While leftovers exist, the SessionStart hook outputs `additionalContext`
     asking Claude to offer the cleanup. It costs no tokens once they're gone.
+- **Distribution (v0.7):**
+  - `claudetalk-dictation.exe` is not in git. `claudetalk.exe` downloads it
+    from the GitHub release of its own version into
+    `%LOCALAPPDATA%\claudeTalk\bin\<version>\`. It does this in a detached
+    `fetch-dictation --start`, so the hook returns at once.
+  - A copy next to `claudetalk.exe` wins over the download.
+  - The daemon finds `claudetalk.exe` through
+    `%APPDATA%\claudeTalk\claudetalk-path.txt`, which every SessionStart
+    rewrites.

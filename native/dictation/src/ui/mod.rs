@@ -314,8 +314,7 @@ impl App {
             let c = self.shared.config.lock().unwrap();
             (c.str("tts_voice"), c.str("tts_rate"), c.f64("tts_volume", 100.0) as i64)
         };
-        let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("claudetalk.exe")));
-        if let Some(exe) = exe.filter(|e| e.exists()) {
+        if let Some(exe) = crate::claudetalk_exe() {
             use std::os::windows::process::CommandExt;
             let _ = std::process::Command::new(exe)
                 .args(["preview", &voice, &rate, &vol.to_string(), sample])

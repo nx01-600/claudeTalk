@@ -31,9 +31,9 @@ Dictation comes with a floating *liquid glass* overlay (dark glass, white ink) w
 
 - Windows 10/11.
 - [Claude Code](https://claude.com/claude-code).
-- Nothing else to install: no Python, no ffmpeg, no CUDA. The plugin ships two native programs in `bin\`: `claudetalk.exe` (about 3 MB: hooks, the `say` tool, Claude's voice) and `claudetalk-dictation.exe` (dictation, the overlay and the tray).
+- Nothing else to install: no Python, no ffmpeg, no CUDA. The plugin ships `bin\claudetalk.exe` (about 3 MB: hooks, the `say` tool, Claude's voice). The dictation app, `claudetalk-dictation.exe` (~60 MB, because it carries whisper.cpp's GPU shaders), is downloaded once per version from this repo's GitHub release, so the plugin itself stays small.
 - For fast transcription, a GPU with Vulkan drivers (any recent NVIDIA, AMD or Intel GPU). Without one it runs on the CPU, several times slower.
-- Internet for Claude's voice (Microsoft's online voice service) and, once, to download the voice model (~0.9 GB).
+- Internet for Claude's voice (Microsoft's online voice service) and, once, to download the dictation app (~60 MB) and the voice model (~0.9 GB).
 
 ## Installation
 
@@ -50,7 +50,7 @@ Inside Claude Code:
 /plugin install claudeTalk@claudeTalk
 ```
 
-Done. The next Claude Code session already starts with dictation active. The first time, it downloads the Whisper `large-v3-turbo` model (q8_0, ~0.9 GB) and the Silero VAD model (~1 MB) to `%LOCALAPPDATA%\claudeTalk\models`; the tray icon's tooltip shows the progress.
+Done. The next Claude Code session starts dictation on its own. The first time, it downloads the dictation app for this version to `%LOCALAPPDATA%\claudeTalk\bin\<version>\` (`claudetalk.exe fetch-dictation` does it by hand), then the Whisper `large-v3-turbo` model (q8_0, ~0.9 GB) and the Silero VAD model (~1 MB) to `%LOCALAPPDATA%\claudeTalk\models`; the tray icon's tooltip shows the progress.
 
 ### 2. Start Menu app (optional)
 
@@ -73,7 +73,7 @@ It only removes claudeTalk's own leftovers:
 - the Python environment (`voice-input\.venv`, `%LOCALAPPDATA%\claudeTalk\venv`, `venv-path.txt`);
 - old scripts;
 - faster-whisper's model in the Hugging Face cache;
-- model files this version doesn't load;
+- model files this version doesn't load, and dictation apps downloaded for other versions;
 - older plugin copies in `~\.claude\plugins\cache\claudeTalk`.
 
 It also repoints Start Menu and desktop shortcuts that still launch `dictation.vbs`. It doesn't uninstall ffmpeg or edge-tts, because other tools may use them; it only mentions them.
@@ -105,7 +105,7 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Clau
 ### Starting and stopping
 
 - It starts on its own with every Claude Code session (`SessionStart` hook) and shuts down on its own when you close the last Claude Code window.
-- By hand: the **claudeTalk** Start Menu app (see [Installation](#2-start-menu-app-optional)), the desktop **claudeTalk Dictation** shortcut (`install-app.ps1 -Desktop`), `bin\claudetalk-dictation.exe`, or `/dictation` inside Claude Code. Launched by hand, it stays running (even through Claude Code sessions opening and closing) until you turn it off.
+- By hand: the **claudeTalk** Start Menu app (see [Installation](#2-start-menu-app-optional)), the desktop **claudeTalk Dictation** shortcut (`install-app.ps1 -Desktop`), or `/dictation` inside Claude Code. Launched by hand, it stays running (even through Claude Code sessions opening and closing) until you turn it off.
 - Turning it off: gear → **Turn off dictation**, or tray → **Turn off dictation**. Always asks for confirmation.
 
 ### Talk mode (Claude's voice)
@@ -202,7 +202,7 @@ Decisions worth knowing (explained in the source comments):
 ```
 .claude-plugin/     plugin and local marketplace manifest
 assets/claudetalk.ico  Start Menu / tray icon (embedded in claudetalk-dictation.exe)
-bin/                claudetalk.exe and claudetalk-dictation.exe, built from native/
+bin/                claudetalk.exe, built from native/ (claudetalk-dictation.exe comes from the release)
 commands/           /voice /dictation
 skills/talk/        /talk: turns talk mode on and off, changes settings
 .mcp.json           `voice` MCP server → claudetalk.exe mcp (the `say` tool)
@@ -232,7 +232,7 @@ Needs Rust, and for the dictation crate (whisper.cpp) Visual Studio Build Tools,
 ```powershell
 native\build.cmd . cargo test --workspace                # unit tests
 native\build.cmd . cargo build --release --workspace     # both executables, in C:\ctb\release
-copy C:\ctb\release\claudetalk*.exe bin\
+copy C:\ctb\release\claudetalk*.exe bin\       # a local claudetalk-dictation.exe here wins over the download (git-ignored)
 C:\ctb\release\claudetalk-dictation.exe --render-test %TEMP%\ct 1.5   # PNGs of the pill and panels
 powershell -File native\tests\gen-golden.ps1             # optional: parity fixtures from your own transcripts
 ```

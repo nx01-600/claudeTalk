@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 *.log
 .claude/
+# downloaded from the GitHub release at first use; a local build can sit here
+bin/claudetalk-dictation.exe

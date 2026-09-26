@@ -1,5 +1,6 @@
-# Builds and tests the native binaries. On a v* tag it also attaches them to
-# the GitHub release and opens a PR that refreshes bin/ with the CI build.
+# Builds and tests the native binaries. On a v* tag it attaches both to the
+# GitHub release (claudetalk.exe downloads claudetalk-dictation.exe from the
+# release of its own version) and opens a PR that refreshes bin/claudetalk.exe.
 name: build
 
 on:
@@ -59,7 +60,7 @@ jobs:
       - name: Refresh bin/
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
-        run: Copy-Item C:/t/release/claudetalk.exe, C:/t/release/claudetalk-dictation.exe bin/ -Force
+        run: Copy-Item C:/t/release/claudetalk.exe bin/ -Force
       - uses: peter-evans/create-pull-request@v6
         if: startsWith(github.ref, 'refs/tags/v')
         with:
@@ -68,4 +69,4 @@ jobs:
           title: "bin: CI build of ${{ github.ref_name }}"
           body: Binaries in bin/ rebuilt by CI from the ${{ github.ref_name }} sources.
           commit-message: "chore: bin/ from CI build of ${{ github.ref_name }}"
-          add-paths: bin/*.exe
+          add-paths: bin/claudetalk.exe

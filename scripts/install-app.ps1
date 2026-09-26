@@ -2,15 +2,16 @@
 # Creates a Start Menu shortcut so dictation can be launched like any other
 # installed app (Windows key -> "claudeTalk" -> Enter), independent of
 # Claude Code. Launched this way it stays in the tray until turned off.
-# Idempotent: safe to re-run after moving the plugin. Pass -Desktop to also
-# put a shortcut on the desktop.
+# The dictation app is downloaded first if this version doesn't have it yet.
+# Idempotent. Pass -Desktop to also put a shortcut on the desktop.
 
 param([switch]$Desktop)
 
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "bin\claudetalk-dictation.exe"
-if (-not (Test-Path $exe)) {
-    Write-Error "claudetalk-dictation.exe not found at $exe"
+$claudetalk = Join-Path $root "bin\claudetalk.exe"
+$exe = (& $claudetalk fetch-dictation | Select-Object -Last 1)
+if ($LASTEXITCODE -ne 0 -or -not $exe -or -not (Test-Path $exe)) {
+    Write-Error "could not get claudetalk-dictation.exe (see %TEMP%\claudetalk.log)"
     exit 1
 }
 

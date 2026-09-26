@@ -234,6 +234,7 @@ dependencies = [
  "sha2",
  "tungstenite",
  "unicode-normalization",
+ "ureq",
  "windows-sys 0.61.2",
 ]
 

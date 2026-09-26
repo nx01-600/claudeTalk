@@ -1,5 +1,5 @@
-//! Starting the dictation daemon (voice-daemon-ensure.ps1 in v0.5): the
-//! native bin\claudetalk-dictation.exe, next to this one.
+//! Starting the dictation daemon (voice-daemon-ensure.ps1 in v0.5). The
+//! daemon is downloaded on first use (see fetch.rs).
 
 use ct_core::lock::wide;
 use std::path::{Path, PathBuf};
@@ -7,6 +7,9 @@ use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Threading::OpenMutexW;
 
 const SYNCHRONIZE: u32 = 0x0010_0000;
+const DETACHED: u32 = 0x0000_0008;
+const NO_WINDOW: u32 = 0x0800_0000;
+const BREAKAWAY: u32 = 0x0100_0000;
 
 /// Plugin root: this exe lives in <root>\bin.
 pub fn plugin_root() -> PathBuf {
@@ -26,32 +29,62 @@ pub fn running() -> bool {
     true
 }
 
-fn dictation_exe() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?.parent()?.join("claudetalk-dictation.exe");
-    exe.exists().then_some(exe)
-}
-
-/// Starts dictation in --auto mode unless it runs already. Returns what
-/// happened, for /dictation.
-pub fn ensure() -> &'static str {
-    if running() {
-        return "running";
-    }
-    let Some(exe) = dictation_exe() else { return "not-installed" };
+fn spawn(exe: &Path, args: &[&str], flags: u32) -> bool {
     use std::os::windows::process::CommandExt;
-    const DETACHED: u32 = 0x0000_0008;
-    const BREAKAWAY: u32 = 0x0100_0000;
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.arg("--auto")
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(args)
         .current_dir(plugin_root())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     // Outlive the hook even if Claude Code puts hooks in a job.
-    let spawned = cmd.creation_flags(DETACHED | BREAKAWAY).spawn().or_else(|_| cmd.creation_flags(DETACHED).spawn());
-    if spawned.is_ok() {
-        "started"
-    } else {
-        "failed"
+    cmd.creation_flags(flags | BREAKAWAY).spawn().or_else(|_| cmd.creation_flags(flags).spawn()).is_ok()
+}
+
+/// Starts dictation in --auto mode unless it runs already. If the daemon
+/// isn't downloaded yet, a detached `claudetalk fetch-dictation` gets it and
+/// then starts it, so the hook returns at once. Returns what happened.
+pub fn ensure() -> &'static str {
+    crate::fetch::remember_self();
+    if running() {
+        return "running";
     }
+    match crate::fetch::dictation_exe() {
+        Some(exe) => {
+            if spawn(&exe, &["--auto"], DETACHED) {
+                "started"
+            } else {
+                "failed"
+            }
+        }
+        None => {
+            let me = std::env::current_exe().unwrap_or_default();
+            if spawn(&me, &["fetch-dictation", "--start"], DETACHED | NO_WINDOW) {
+                "downloading"
+            } else {
+                "failed"
+            }
+        }
+    }
+}
+
+/// `claudetalk fetch-dictation [--start]`: downloads the daemon for this
+/// version (and starts it). Prints the path.
+pub fn fetch_command(start: bool) -> i32 {
+    let exe = match crate::fetch::dictation_exe() {
+        Some(e) => e,
+        None => match crate::fetch::download() {
+            Ok(e) => e,
+            Err(e) => {
+                ct_core::log::log(&format!("fetch-dictation: {e}"));
+                eprintln!("claudeTalk: could not download the dictation app: {e}");
+                return 1;
+            }
+        },
+    };
+    println!("{}", exe.display());
+    if start && !running() {
+        spawn(&exe, &["--auto"], DETACHED);
+    }
+    0
 }

@@ -71,6 +71,15 @@ fn scan() -> (Vec<Found>, Vec<String>) {
         }
     }
 
+    // daemons downloaded for other versions
+    if let Ok(d) = std::fs::read_dir(crate::fetch::versions_dir()) {
+        for e in d.flatten() {
+            if e.path().is_dir() && e.file_name().to_string_lossy() != crate::fetch::VERSION {
+                v.push(Found { path: e.path(), why: "dictation app downloaded for another version" });
+            }
+        }
+    }
+
     // older copies of the plugin in Claude Code's cache (each old one kept a
     // copy of the Python venv)
     let cache = env_path("USERPROFILE").join(".claude").join("plugins").join("cache").join("claudeTalk").join("claudeTalk");
@@ -113,8 +122,7 @@ fn which(exe: &str) -> bool {
 /// at a copy of the plugin that no longer exists (after an update).
 fn fix_shortcuts(apply: bool) -> Vec<String> {
     let mut out = Vec::new();
-    let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("claudetalk-dictation.exe")));
-    let Some(exe) = exe.filter(|e| e.exists()) else { return out };
+    let Some(exe) = crate::fetch::dictation_exe() else { return out };
     let script = format!(
         "$sh = New-Object -ComObject WScript.Shell; \
          foreach ($p in @(\"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\claudeTalk.lnk\", \"$([Environment]::GetFolderPath('Desktop'))\\claudeTalk Dictation.lnk\")) {{ \
@@ -179,8 +187,12 @@ pub fn leftovers_present() -> bool {
         return true;
     }
     let cache = env_path("USERPROFILE").join(".claude").join("plugins").join("cache").join("claudeTalk").join("claudeTalk");
-    root.starts_with(&cache)
-        && std::fs::read_dir(&cache)
+    let old_daemons = std::fs::read_dir(crate::fetch::versions_dir())
+        .map(|d| d.flatten().any(|e| e.path().is_dir() && e.file_name().to_string_lossy() != crate::fetch::VERSION))
+        .unwrap_or(false);
+    old_daemons
+        || root.starts_with(&cache)
+            && std::fs::read_dir(&cache)
             .map(|d| d.flatten().any(|e| e.path().is_dir() && !root.starts_with(e.path())))
             .unwrap_or(false)
 }
