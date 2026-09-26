@@ -29,10 +29,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: ilammy/msvc-dev-cmd@v1
       - uses: seanmiddleditch/gha-setup-ninja@v5
-      - uses: humbletim/install-vulkan-sdk@v1.2
-        with:
-          version: latest
-          cache: true
+      - name: Vulkan SDK (LunarG installer, silent)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe" -OutFile "$env:RUNNER_TEMP\vulkan_sdk.exe"
+          & "$env:RUNNER_TEMP\vulkan_sdk.exe" --root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install | Out-Null
+          if (-not (Test-Path C:\VulkanSDK\Include\vulkan\vulkan.h)) { throw "Vulkan SDK not installed" }
+          "VULKAN_SDK=C:\VulkanSDK" >> $env:GITHUB_ENV
+          "C:\VulkanSDK\Bin" >> $env:GITHUB_PATH
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native -> C:/t
