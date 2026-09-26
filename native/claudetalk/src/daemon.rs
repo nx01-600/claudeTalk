@@ -1,7 +1,7 @@
-//! Starting the dictation daemon (voice-daemon-ensure.ps1 in v0.5).
+//! Starting the dictation daemon (voice-daemon-ensure.ps1 in v0.5): the
+//! native bin\claudetalk-dictation.exe, next to this one.
 
 use ct_core::lock::wide;
-use ct_core::paths;
 use std::path::{Path, PathBuf};
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Threading::OpenMutexW;
@@ -26,48 +26,29 @@ pub fn running() -> bool {
     true
 }
 
-/// pythonw.exe of the dictation venv, if dictation is installed. Same lookup
-/// order as v0.5: the path setup-voice.ps1 saved, the repo's .venv, then the
-/// default %LOCALAPPDATA%\claudeTalk\venv.
-fn python() -> Option<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Ok(saved) = std::fs::read_to_string(paths::state_dir().join("venv-path.txt")) {
-        let saved = saved.trim_start_matches('\u{feff}').trim();
-        if !saved.is_empty() {
-            candidates.push(PathBuf::from(saved).join("Scripts\\pythonw.exe"));
-        }
-    }
-    candidates.push(plugin_root().join("voice-input\\.venv\\Scripts\\pythonw.exe"));
-    candidates.push(paths::local_dir().join("venv\\Scripts\\pythonw.exe"));
-    candidates.into_iter().find(|p| p.exists())
+fn dictation_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?.parent()?.join("claudetalk-dictation.exe");
+    exe.exists().then_some(exe)
 }
 
-/// Starts dictation in --auto mode unless it runs already or isn't installed.
-/// Returns what happened, for /dictation.
+/// Starts dictation in --auto mode unless it runs already. Returns what
+/// happened, for /dictation.
 pub fn ensure() -> &'static str {
     if running() {
         return "running";
     }
-    let Some(py) = python() else { return "not-installed" };
-    let script_dir = plugin_root().join("voice-input");
+    let Some(exe) = dictation_exe() else { return "not-installed" };
     use std::os::windows::process::CommandExt;
-    let spawned = std::process::Command::new(py)
-        .arg(script_dir.join("daemon_cli.py"))
-        .arg("--auto")
-        .current_dir(&script_dir)
+    const DETACHED: u32 = 0x0000_0008;
+    const BREAKAWAY: u32 = 0x0100_0000;
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.arg("--auto")
+        .current_dir(plugin_root())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(0x0800_0000 | 0x0000_0008 | 0x0100_0000)
-        .spawn()
-        .or_else(|_| {
-            std::process::Command::new(python().unwrap())
-                .arg(script_dir.join("daemon_cli.py"))
-                .arg("--auto")
-                .current_dir(&script_dir)
-                .creation_flags(0x0800_0000 | 0x0000_0008)
-                .spawn()
-        });
+        .stderr(std::process::Stdio::null());
+    // Outlive the hook even if Claude Code puts hooks in a job.
+    let spawned = cmd.creation_flags(DETACHED | BREAKAWAY).spawn().or_else(|_| cmd.creation_flags(DETACHED).spawn());
     if spawned.is_ok() {
         "started"
     } else {

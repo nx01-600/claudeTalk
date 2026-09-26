@@ -9,4 +9,4 @@ Run this command with Bash and then tell the user, in one line, that dictation i
 "${CLAUDE_PLUGIN_ROOT}/bin/claudetalk.exe" dictation
 ```
 
-If it says dictation isn't installed, say that `scripts/setup-voice.ps1` from the plugin needs to be run once (see README).
+If it says the dictation executable is missing, tell the user to reinstall or update the plugin. The first run downloads the voice model (~0.9 GB) in the background; the tray icon's tooltip shows the progress.

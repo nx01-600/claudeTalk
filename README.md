@@ -3,7 +3,7 @@
 Voice for **Claude Code** on Windows, in both directions:
 
 - **Claude speaks**: reads its responses out loud (Microsoft Edge neural voices, streamed by a small native player).
-- **You dictate**: press a key chord, talk, and the text appears transcribed in the window you had focused. All local: Whisper runs on your GPU (or CPU), the audio never leaves your machine.
+- **You dictate**: press a key chord, talk, and the text appears transcribed in the window you had focused. All local: Whisper runs on your GPU (any GPU with Vulkan: NVIDIA, AMD or Intel) or the CPU, and the audio never leaves your machine.
 
 Dictation comes with a floating *liquid glass* overlay (dark glass, white ink) with bars that follow your voice, and a settings panel from the gear icon.
 
@@ -31,9 +31,9 @@ Dictation comes with a floating *liquid glass* overlay (dark glass, white ink) w
 
 - Windows 10/11.
 - [Claude Code](https://claude.com/claude-code).
-- Python 3.11 to 3.13 (for dictation).
-- NVIDIA GPU with CUDA 12 for transcription in tenths of a second. Without a GPU it works on CPU (several seconds per sentence).
-- For Claude's voice (TTS): nothing to install. The plugin ships `bin\claudetalk.exe` (about 3 MB), which talks to Microsoft's online voice service itself (needs internet).
+- Nothing else to install: no Python, no ffmpeg, no CUDA. The plugin ships two native programs in `bin\`: `claudetalk.exe` (about 3 MB: hooks, the `say` tool, Claude's voice) and `claudetalk-dictation.exe` (dictation, the overlay and the tray).
+- For fast transcription, a GPU with Vulkan drivers (any recent NVIDIA, AMD or Intel GPU). Without one it runs on the CPU, several times slower.
+- Internet for Claude's voice (Microsoft's online voice service) and, once, to download the voice model (~0.9 GB).
 
 ## Installation
 
@@ -50,20 +50,12 @@ Inside Claude Code:
 /plugin install claudeTalk@claudeTalk
 ```
 
-### 2. Voice dictation (one time only)
+Done. The next Claude Code session already starts with dictation active. The first time, it downloads the Whisper `large-v3-turbo` model (q8_0, ~0.9 GB) and the Silero VAD model (~1 MB) to `%LOCALAPPDATA%\claudeTalk\models`; the tray icon's tooltip shows the progress.
+
+### 2. Start Menu app (optional)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\path\to\claudeTalk\scripts\setup-voice.ps1 -Shortcut
-```
-
-Creates a virtual environment at `%LOCALAPPDATA%\claudeTalk\venv`, installs the dependencies (`faster-whisper`, `PySide6`, `sounddevice`, CUDA runtime) and, with `-Shortcut`, leaves a **claudeTalk Dictation** shortcut on the desktop. The Whisper `large-v3-turbo` model (~1.6 GB) downloads on its own the first time you dictate.
-
-Done. The next Claude Code session already starts with dictation active.
-
-### 3. Start Menu app (optional)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File C:\path\to\claudeTalk\scripts\install-app.ps1
+powershell -ExecutionPolicy Bypass -File C:\path\to\claudeTalk\scripts\install-app.ps1 [-Desktop]
 ```
 
 Adds a **claudeTalk** shortcut to the Start Menu, with the same icon shown in the system tray. Press the Windows key, type `claudeTalk`, hit Enter: dictation starts standalone, with no Claude Code session required, and keeps running until you turn it off from the gear or the tray icon — even if a Claude Code session later opens and closes.
@@ -93,7 +85,7 @@ Settings live in `%APPDATA%\claudeTalk\dictation.json` and apply instantly. Clau
 ### Starting and stopping
 
 - It starts on its own with every Claude Code session (`SessionStart` hook) and shuts down on its own when you close the last Claude Code window.
-- By hand: the **claudeTalk** Start Menu app (see [Installation](#3-start-menu-app-optional)), the desktop **claudeTalk Dictation** shortcut, `wscript scripts\dictation.vbs`, or `/dictation` inside Claude Code. Launched by hand, it stays running (even through Claude Code sessions opening and closing) until you turn it off.
+- By hand: the **claudeTalk** Start Menu app (see [Installation](#2-start-menu-app-optional)), the desktop **claudeTalk Dictation** shortcut (`install-app.ps1 -Desktop`), `bin\claudetalk-dictation.exe`, or `/dictation` inside Claude Code. Launched by hand, it stays running (even through Claude Code sessions opening and closing) until you turn it off.
 - Turning it off: gear → **Turn off dictation**, or tray → **Turn off dictation**. Always asks for confirmation.
 
 ### Talk mode (Claude's voice)
@@ -125,20 +117,23 @@ Measured on a laptop with an RTX 5070 Ti Laptop GPU (12 GB) and a 24-thread CPU,
 
 ### Dictation daemon (the only resident piece)
 
-| Resource | While idle | While dictating |
-|---|---|---|
-| **VRAM** | about **2.1 GB** (measured: 1.5 GB used by the system without the daemon, 3.7 GB with it) | the same, plus a short spike while Whisper decodes |
-| **RAM** | about **275 MB** working set. Windows reports about 3.1 GB *committed* (reserved address space for the CUDA and cuBLAS libraries); that is not memory in use. | about the same |
-| **CPU** | about **4-5 % of one core** (0.2 % of the whole CPU), with or without talk mode: the overlay's timers, the hotkey hook, watching which window is in front, and reading the mic for the wake word | Whisper runs on the GPU. 30 s of speech took 0.5 s to transcribe; 49 s took 3.2 s. |
+| Resource | Idle, model not loaded | Idle, model loaded | While dictating |
+|---|---|---|---|
+| **VRAM** | 0 | about **0.85 GB** | the same, plus a short spike while Whisper decodes |
+| **RAM** | about **13 MB** working set | about **100 MB** | about the same |
+| **CPU** | about **0.4 % of one core**: watching which window is in front, the config file and the Claude sessions | the same | Whisper runs on the GPU: about 0.25 s for a 4-second sentence |
+
+The Python daemon of v0.5 used about 275 MB of RAM, 2.1 GB of VRAM and 4-5 % of a core at rest, plus a 2.9 GB virtual environment on disk.
 
 Why it doesn't cost that all the time:
 
-- **One model for everything.** Whisper `large-v3-turbo` (float16, CUDA) stays loaded in VRAM so a dictation starts without waiting. "Oye Claude" reuses that same model; no second wake word model is loaded.
-- **It unloads itself.** After **30 minutes** without use the model is released and the 2.1 GB of VRAM go back to the system. The next dictation reloads it, which takes a few seconds.
-- **Silence is free.** The wake word listener only reads the mic. A cheap energy check cuts out short sound bursts (0.3 to 2.5 s), and only those reach Whisper. Silence and steady noise never touch the GPU.
+- **One model for everything.** Whisper `large-v3-turbo` (q8_0 quantization, which transcribed our Spanish test set with fewer errors than the float16 model v0.5 used: see `native/bench/RESULTS.md`) stays loaded so a dictation starts without waiting. "Oye Claude" reuses that same model.
+- **It unloads itself.** After **30 minutes** without use the model is released and its VRAM goes back to the system. The next dictation reloads it, which takes a couple of seconds.
+- **Silence is free.** The wake word listener only reads the mic. A cheap energy check cuts out short sound bursts (0.3 to 2.5 s), a small voice detector (Silero VAD, on the CPU) drops the ones that aren't a voice, and only speech reaches Whisper.
 - **The wake word listens only while talk mode is on** in at least one session and the "Oye Claude" toggle is on (whatever the wake phrase is). Otherwise the mic stays closed between dictations.
-- **The daemon closes when you do.** In `--auto` mode it shuts down when the last interactive Claude Code session ends, and all its memory goes back to the system. The gear's "Turn off dictation" closes it right away.
-- **No GPU?** It falls back to CPU (int8). That uses more CPU and is several times slower per dictation, but it needs no VRAM.
+- **No polling.** The chord is detected from the keyboard's raw input events, so nothing checks the keys 60 times a second; the glass is only re-blurred when what's behind it changed, and the panels only repaint while something in them moves.
+- **The daemon closes when you do.** In `--auto` mode it shuts down when the last interactive Claude Code session ends. The gear's or the tray's "Turn off dictation" closes it right away.
+- **No GPU?** It runs Whisper on the CPU: several times slower per dictation, but no VRAM.
 
 ### Claude's voice (talk mode)
 
@@ -166,79 +161,62 @@ Claude's answers also get a little longer in talk mode: each `say` call is one o
 ## How it works
 
 ```
-key chord ──► recording (16 kHz, silence cutoff) ──► faster-whisper (GPU)
-     │                       │                                 │
-     │                  overlay.py                             ▼
-     │            pill + level bars                 clipboard + simulated Ctrl+V
-     │                                               (only if focus didn't change)
-     └── hotkey.py: GetAsyncKeyState polling every 15 ms, no keyboard hooks
+key chord (raw input) ──► recording (16 kHz, silence cutoff, noise gate) ──► Whisper turbo q8_0 (Vulkan)
+        │                        │                                                   │
+        │                  glass pill + level bars                                   ▼
+        │                                                       clipboard + simulated Ctrl+V
+        │                                                       (only if focus didn't change)
+"Oye Claude" ──► VAD ──► Whisper ──► same recording ──► typed into the last Claude session's console
 ```
 
-Decisions worth knowing (all explained in the docstrings):
+Decisions worth knowing (explained in the source comments):
 
-- **Hotkey without hooks.** `RegisterHotKey` doesn't distinguish left Alt from right Alt and doesn't accept modifier-only chords; low-level hooks (`keyboard`, `pynput`) bring auto-repeat storms. Polling `GetAsyncKeyState` solves both problems at negligible cost.
+- **Chord without hooks or polling.** `RegisterHotKey` can't tell left Alt from right Alt and refuses modifier-only chords; low-level hooks bring auto-repeat storms. Raw keyboard input wakes the daemon only when a key changes, and the chord fires once when all its keys are down.
 - **Paste, don't type.** Typing character by character with `SendInput` loses accented characters depending on the app and can land in the wrong window partway through. Pasting via the clipboard is atomic and preserves Unicode.
-- **Real, live glass.** Windows 11's native backdrops (Mica/Acrylic) return a solid panel for windows whose content Qt paints by hand, so the overlay does it itself: the window is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), grabs what is behind it 25 times a second, blurs it with color and boosted saturation, tints it, and adds edge lensing and a specular rim. Side effect: the overlay is invisible in screenshots and screen sharing.
-- **Never steals focus.** The overlay and panel use `WS_EX_NOACTIVATE`; if they were to activate, the paste would end up going to the overlay.
-- **Resident model.** Whisper preloads on startup and unloads after 30 minutes of no use to free VRAM.
+- **Real, live glass.** Windows 11's native backdrops return a flat panel for hand-painted windows, so the overlay does it itself: the window is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), grabs what is behind it, blurs it with color and boosted saturation, tints it, and adds edge lensing and a specular rim. Side effect: the overlay is invisible in screenshots and screen sharing, unless "Show in screen share" is on.
+- **Never steals focus.** The overlay and panels use `WS_EX_NOACTIVATE`; if they activated, the paste would go to the overlay.
+- **Resident model.** Whisper loads (and warms up its GPU pipelines) at startup and unloads after 30 minutes of no use.
 
 ## Structure
 
 ```
 .claude-plugin/     plugin and local marketplace manifest
-assets/claudetalk.ico  Start Menu / tray icon, generated by scripts/make-icon.py
+assets/claudetalk.ico  Start Menu / tray icon (embedded in claudetalk-dictation.exe)
+bin/                claudetalk.exe and claudetalk-dictation.exe, built from native/
 commands/           /voice /dictation
 skills/talk/        /talk: turns talk mode on and off, changes settings
 .mcp.json           `voice` MCP server → claudetalk.exe mcp (the `say` tool)
 hooks/hooks.json    UserPromptSubmit / Stop / SessionStart → claudetalk.exe hook prompt|stop|session-start
-bin/claudetalk.exe  native plugin binary built from native/: hooks, MCP server, /talk, speech player
-native/             Rust sources: ct-core (sessions, queue, transcript rules) and claudetalk; SPEC.md is the behavior contract
-scripts/
-  setup-voice.ps1         installs dictation (venv + dependencies + shortcut)
-  dictation.vbs           manual launcher without a console window (the "app")
-  install-app.ps1         adds the claudeTalk Start Menu shortcut
-  make-icon.py            renders voice-input/icon.py into assets/claudetalk.ico
-voice-input/
-  daemon_cli.py    orchestration, tray, --auto mode, single instance
-  icon.py          tray/shortcut artwork, shared by daemon_cli.py and make-icon.py
-  hotkey.py        chord via polling, key capture
-  audio.py         recording with noise calibration and silence cutoff
-  stt.py           resident faster-whisper (GPU, CPU fallback)
-  inject.py        clipboard + Ctrl+V, focus guard, typing into a Claude console, diagnostics
-  overlay.py       pill, settings panel, glass, animations
-  config.py        persistent settings (%APPDATA%\claudeTalk\dictation.json)
-  sounds.py        synthesized start chime
-  test_*.py        manual diagnostics
+scripts/install-app.ps1  adds the claudeTalk Start Menu (and desktop) shortcut
+native/             Rust sources; SPEC.md is the behavior contract
+  ct-core/          shared state: sessions and voices, speech queue, transcript rules
+  claudetalk/       hooks, MCP server, /talk (toggle), speech player with Edge TTS
+  dictation/        claudetalk-dictation.exe: audio, Whisper, wake phrase, hotkey,
+                    paste and console typing, glass overlay and panels, tray
+  bench/            speech-to-text benchmark behind the model choice
+  build.cmd         build environment for the crates that compile whisper.cpp
 ```
 
 ## Diagnostics
 
-- Dictation log (when running without a console): `%TEMP%\claudetalk-dictation.log`. Running it by hand in a terminal (`python voice-input\daemon_cli.py`) shows the same live, including a `[diag]` line for each paste with the target window, whether it's running elevated, and how many events `SendInput` accepted.
+- Dictation log: `%TEMP%\claudetalk-dictation.log`, with a `[diag]` line for each paste: the target window, whether it runs elevated, and how many events `SendInput` accepted.
 - TTS and hooks log: `%TEMP%\claudetalk.log`.
 - "Doesn't paste into that app but does into others": if the app runs as administrator and the daemon doesn't, Windows blocks the synthetic `Ctrl+V` (UIPI). Launch the daemon with the same privilege level.
 - Two instances can't coexist: the second one warns and exits.
 
 ## Development
 
-```powershell
-cd voice-input
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python daemon_cli.py        # with console and live logs
-.\.venv\Scripts\python test_hotkey.py       # see which keys it detects
-.\.venv\Scripts\python test_inject.py       # paste into a test Notepad
-```
-
-If `voice-input\.venv` exists, both the hook and the launcher prefer it over the `%LOCALAPPDATA%` venv.
-
-The plugin binary is Rust (`native/`):
+Needs Rust, and for the dictation crate (whisper.cpp) Visual Studio Build Tools, CMake, Ninja, LLVM and the Vulkan SDK (`winget install Kitware.CMake Ninja-build.Ninja LLVM.LLVM KhronosGroup.VulkanSDK`).
 
 ```powershell
-cd native
-cargo test                                   # unit tests
-powershell -File tests\gen-golden.ps1        # optional: parity fixtures from your own transcripts (needs the v0.5.4 scripts)
-cargo build --release; copy target\release\claudetalk.exe ..\bin\
+native\build.cmd . cargo test --workspace                # unit tests
+native\build.cmd . cargo build --release --workspace     # both executables, in C:\ctb\release
+copy C:\ctb\release\claudetalk*.exe bin\
+C:\ctb\release\claudetalk-dictation.exe --render-test %TEMP%\ct 1.5   # PNGs of the pill and panels
+powershell -File native\tests\gen-golden.ps1             # optional: parity fixtures from your own transcripts
 ```
+
+`build.cmd` sets up the MSVC environment, uses Ninja (MSBuild trips over long paths in the Vulkan shader build) and a short target directory (`C:\ctb`).
 
 ## License
 

@@ -39,7 +39,7 @@ fn main() {
             let msg = match daemon::ensure() {
                 "running" => "claudeTalk: dictation was already running.",
                 "started" => "claudeTalk: dictation started.",
-                "not-installed" => "claudeTalk: dictation isn't installed (run scripts/setup-voice.ps1 once, see README).",
+                "not-installed" => "claudeTalk: bin\\claudetalk-dictation.exe is missing: reinstall or update the plugin.",
                 _ => "claudeTalk: dictation could not be started (see %TEMP%\\claudetalk.log).",
             };
             println!("{msg}");

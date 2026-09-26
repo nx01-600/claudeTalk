@@ -18,12 +18,23 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # whisper.cpp: Ninja instead of MSBuild (long paths in the Vulkan
+      # shader build) and a short target dir
+      CMAKE_GENERATOR: Ninja
+      CARGO_TARGET_DIR: C:/t
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: latest
+          cache: true
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: native
+          workspaces: native -> C:/t
       - name: Test
         working-directory: native
         run: cargo test --workspace
@@ -33,18 +44,22 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: claudetalk-bin
-          path: native/target/release/*.exe
+          path: |
+            C:/t/release/claudetalk.exe
+            C:/t/release/claudetalk-dictation.exe
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: native/target/release/*.exe
+          files: |
+            C:/t/release/claudetalk.exe
+            C:/t/release/claudetalk-dictation.exe
 
       - name: Refresh bin/
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
-        run: Copy-Item native/target/release/claudetalk.exe bin/ -Force
+        run: Copy-Item C:/t/release/claudetalk.exe, C:/t/release/claudetalk-dictation.exe bin/ -Force
       - uses: peter-evans/create-pull-request@v6
         if: startsWith(github.ref, 'refs/tags/v')
         with:

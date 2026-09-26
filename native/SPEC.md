@@ -273,3 +273,23 @@ Fragile details that must survive:
   are no longer needed. The `edge_tts_path` and `ffplay_path` keys are ignored.
 - **Panel "Turn off dictation"** also deletes `persistent.flag`, like the tray does.
 - **`transcribe` is serialised** (it could overlap wake and dictation before).
+- **Dictation daemon (v0.7):**
+  - Whisper large-v3-turbo q8_0 on whisper.cpp with Vulkan, instead of
+    faster-whisper fp16 on CUDA. It makes fewer errors on the test set; see
+    `bench/RESULTS.md`.
+  - Silero VAD trims silence before Whisper (faster-whisper's vad_filter did
+    this before) and decides which wake bursts are a voice.
+  - The chord is detected from raw input events instead of polling every 15
+    ms. The same GetAsyncKeyState edge logic decides.
+  - The glass re-blurs only when the capture changed. The panels repaint
+    only while they animate.
+  - Ducking and "Claude is talking" are named events
+    (`Local\claudetalk_ducking`, `Local\claudetalk_speaking`), and the
+    speaker ramps its own volume. `ducking.flag` is still written.
+  - Settings keys the daemon doesn't know are kept when it saves.
+  - Launching the exe by hand (no `--auto`) writes `persistent.flag`, as
+    dictation.vbs did.
+  - The drag spot is stored in physical pixels, where v0.5 stored Qt's
+    logical pixels.
+  - The pill's hover cursors are the system hand and move cursors, not
+    Qt's open and closed hands.
