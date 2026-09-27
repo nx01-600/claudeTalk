@@ -23,12 +23,14 @@ pub fn models_dir() -> PathBuf {
     ct_core::paths::local_dir().join("models")
 }
 
-pub fn prompt_for(language: &str) -> &'static str {
-    match language {
-        "es" => "Dictado en espanol para Claude Code: commit, repositorio, hook, pull request, branch, terminal, script, Elementor, Rails, TypeScript, Docker, WordPress.",
-        "en" => "Dictation in English for Claude Code: commit, repository, hook, pull request, branch, terminal, script, TypeScript, Docker, WordPress.",
-        _ => "",
+/// Whisper's initial prompt for a dictation language: the language pack's,
+/// none when Whisper detects the language.
+pub fn prompt_for(language: &str) -> String {
+    let pack = ct_core::lang::cached();
+    if pack.code == language {
+        return pack.whisper_prompt.clone();
     }
+    ct_core::lang::builtin(language).map(|p| p.whisper_prompt).unwrap_or_default()
 }
 
 struct Loaded {

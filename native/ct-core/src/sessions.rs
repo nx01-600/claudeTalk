@@ -9,7 +9,7 @@ use crate::fsutil::{now_iso, read_json, write_json};
 use crate::lock::with_session_lock;
 use crate::paths;
 use crate::procs::{claude_pid, Snapshot};
-use crate::settings::{self, VOICE_POOL};
+use crate::settings;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -162,7 +162,13 @@ pub struct Enabled {
 }
 
 /// Picks the voice for a session turning talk mode on while `others` talk.
-pub fn pick_voice(sess: &mut SessionState, others: &[String], default: &str) -> String {
+/// `pool` is the current language's voices, in hand-out order.
+pub fn pick_voice(sess: &mut SessionState, others: &[String], default: &str, pool: &[String]) -> String {
+    // a voice of another language (claudeTalk's language changed) is dropped
+    if sess.voice.as_ref().is_some_and(|v| !pool.contains(v) && v != default) {
+        sess.voice = None;
+        sess.follows_default = true;
+    }
     let current = effective_voice(sess, default);
     let voice = if sess.voice.is_some() && !others.contains(&current) {
         current
@@ -171,10 +177,10 @@ pub fn pick_voice(sess: &mut SessionState, others: &[String], default: &str) -> 
         default.to_string()
     } else {
         sess.follows_default = false;
-        match VOICE_POOL.iter().find(|v| !others.iter().any(|o| o == *v)) {
+        match pool.iter().find(|v| !others.iter().any(|o| o == *v)) {
             Some(v) => v.to_string(),
             // More sessions than voices: repeat the least used one.
-            None => VOICE_POOL
+            None => pool
                 .iter()
                 .min_by_key(|v| others.iter().filter(|o| o == v).count())
                 .unwrap()
@@ -193,7 +199,7 @@ pub fn enable(sid: &str) -> Enabled {
         let mut sess = get_state(Some(sid));
         let default = settings::gear().voice;
         let others = other_voices(sid, &snap, &default);
-        let voice = pick_voice(&mut sess, &others, &default);
+        let voice = pick_voice(&mut sess, &others, &default, &pool());
         sess.voice = Some(voice.clone());
         sess.enabled = true;
         sess.rules_age = None;
@@ -201,6 +207,38 @@ pub fn enable(sid: &str) -> Enabled {
         update_talk_flag(&snap);
         Enabled { own: voice != default && !others.is_empty(), voice, others }
     })
+}
+
+fn pool() -> Vec<String> {
+    crate::lang::current().voices.into_iter().map(|v| v.id).collect()
+}
+
+/// After a language change: every session that is talking gets a voice of
+/// `pack`, the first one the default voice and the others the next free ones.
+pub fn reassign_voices(pack: &crate::lang::Pack) {
+    let pool: Vec<String> = pack.voices.iter().map(|v| v.id.clone()).collect();
+    let default = settings::gear().voice;
+    with_session_lock(|| {
+        let snap = Snapshot::take();
+        let mut taken: Vec<String> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for sid in live_sessions(&snap).into_values() {
+            if seen.contains(&sid) {
+                continue;
+            }
+            seen.push(sid.clone());
+            let mut sess = get_state(Some(&sid));
+            if !sess.enabled {
+                continue;
+            }
+            sess.voice = None;
+            sess.follows_default = true;
+            let voice = pick_voice(&mut sess, &taken, &default, &pool);
+            sess.voice = Some(voice.clone());
+            set_state(&sid, &sess);
+            taken.push(voice);
+        }
+    });
 }
 
 pub fn disable(sid: &str) {
@@ -243,39 +281,50 @@ mod tests {
     const G: &str = "es-CO-GonzaloNeural";
     const SAL: &str = "es-CO-SalomeNeural";
 
+    fn es() -> Vec<String> {
+        crate::lang::builtin("es").unwrap().voices.into_iter().map(|v| v.id).collect()
+    }
+
     #[test]
     fn first_session_gets_gear_voice() {
         let mut st = s(None, true);
-        assert_eq!(pick_voice(&mut st, &[], G), G);
+        assert_eq!(pick_voice(&mut st, &[], G, &es()), G);
         assert!(st.follows_default);
     }
 
     #[test]
     fn second_session_gets_next_free_pool_voice() {
         let mut st = s(None, true);
-        assert_eq!(pick_voice(&mut st, &[G.into()], G), SAL);
+        assert_eq!(pick_voice(&mut st, &[G.into()], G, &es()), SAL);
         assert!(!st.follows_default);
     }
 
     #[test]
     fn keeps_own_voice_when_free() {
         let mut st = s(Some("es-MX-DaliaNeural"), false);
-        assert_eq!(pick_voice(&mut st, &[G.into()], G), "es-MX-DaliaNeural");
+        assert_eq!(pick_voice(&mut st, &[G.into()], G, &es()), "es-MX-DaliaNeural");
     }
 
     #[test]
     fn own_voice_taken_falls_back_to_default() {
         let mut st = s(Some(SAL), false);
-        assert_eq!(pick_voice(&mut st, &[SAL.into()], G), G);
+        assert_eq!(pick_voice(&mut st, &[SAL.into()], G, &es()), G);
         assert!(st.follows_default);
     }
 
     #[test]
     fn all_taken_repeats_least_used() {
-        let mut others: Vec<String> = VOICE_POOL.iter().map(|v| v.to_string()).collect();
+        let mut others: Vec<String> = es();
         others.push(G.into());
         let mut st = s(None, true);
-        assert_eq!(pick_voice(&mut st, &others, G), SAL);
+        assert_eq!(pick_voice(&mut st, &others, G, &es()), SAL);
+    }
+
+    #[test]
+    fn voice_of_another_language_is_dropped() {
+        let mut st = s(Some("en-US-AvaNeural"), false);
+        assert_eq!(pick_voice(&mut st, &[], G, &es()), G);
+        assert!(st.follows_default);
     }
 
     #[test]

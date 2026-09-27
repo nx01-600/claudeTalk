@@ -324,6 +324,18 @@ impl App {
     }
 
     fn set(&mut self, key: &str, value: Value, from: Kind) {
+        if key == "lang" {
+            // A language moves the voice, the dictation and the wake phrase
+            // along (ct_core::lang::apply writes them); take them all in.
+            if let Err(e) = ct_core::lang::apply(value.as_str().unwrap_or_default()) {
+                println!("[settings] language: {e}");
+            }
+            let changed = self.shared.config.lock().unwrap().reload_if_changed();
+            for k in changed {
+                self.after_change(&k);
+            }
+            return;
+        }
         self.shared.config.lock().unwrap().set(key, value);
         self.after_change(key);
         if from == Kind::Voice && (key == "tts_voice" || key == "tts_rate") {
@@ -341,6 +353,16 @@ impl App {
                 self.tray.set_label(&label);
             }
             "glass" => self.refresh_backgrounds(),
+            "lang" => {
+                ct_core::lang::reload();
+                let cfg = self.shared.config.lock().unwrap();
+                self.panel.relabel(&cfg);
+                self.voice.relabel(&cfg);
+                drop(cfg);
+                let label = hotkey_label(&self.chord.keys);
+                self.tray.set_label(&label);
+                self.refresh_backgrounds();
+            }
             "position" => {
                 // picking Bottom/Top forgets any dragged spot
                 let has = !self.shared.config.lock().unwrap().get("drag_pos").is_null();

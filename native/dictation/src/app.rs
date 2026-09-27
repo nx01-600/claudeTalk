@@ -173,7 +173,7 @@ impl Shared {
         self.post(UiEvent::Transcribing);
         println!("[transcribing] {:.1}s of audio", pcm.len() as f64 / audio::SAMPLE_RATE as f64);
         let t0 = Instant::now();
-        let text = match self.transcriber.transcribe(&pcm, self.language().as_deref(), prompt_for(&lang)) {
+        let text = match self.transcriber.transcribe(&pcm, self.language().as_deref(), &prompt_for(&lang)) {
             Ok(t) => t,
             Err(e) => {
                 println!("[transcribing] failed: {e}");

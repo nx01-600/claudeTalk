@@ -48,6 +48,23 @@ pub struct Range {
 
 const PERCENT: Range = Range { low: 0.0, high: 100.0, step: 1.0, fmt: None };
 
+/// A switch that isn't a stored boolean: on while the dictation detects the
+/// language by itself (`language` = "auto").
+const AUTO_LANGUAGE: &str = "\u{1}auto_language";
+
+/// The panel's English text in claudeTalk's language.
+pub fn tr(english: &str) -> String {
+    ct_core::lang::cached().tr(english)
+}
+
+fn switch_on(key: &str, cfg: &Config) -> bool {
+    if key == AUTO_LANGUAGE {
+        cfg.str("language") == "auto"
+    } else {
+        cfg.bool(key)
+    }
+}
+
 fn silence_fmt(v: f64) -> String {
     // Python's f"{v / 1000:g} s"
     let s = format!("{}", v / 1000.0);
@@ -60,13 +77,29 @@ pub enum Row {
     Hotkey(&'static str),
     Slider(&'static str, &'static str, Range),
     Toggle(&'static str, &'static str),
-    Segment(&'static str, &'static str, Vec<(&'static str, &'static str)>),
+    Segment(&'static str, &'static str, Vec<(String, String)>),
     Text(&'static str, &'static str),
     Danger,
 }
 
+fn opts(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    list.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect()
+}
+
 fn rows(kind: Kind) -> Vec<Row> {
     use Row::*;
+    let pack = ct_core::lang::cached();
+    let languages: Vec<(String, String)> = ct_core::lang::available();
+    // Three voices fit in one row: more are split evenly over extra rows
+    // that edit the same setting; only the row holding the current voice
+    // shows a chip.
+    let per_row = pack.voices.len().div_ceil(pack.voices.len().div_ceil(3)).max(1);
+    let voice_rows: Vec<Row> = pack
+        .voices
+        .chunks(per_row)
+        .enumerate()
+        .map(|(i, chunk)| Segment(if i == 0 { "Voice" } else { "" }, "tts_voice", chunk.iter().map(|v| (v.id.clone(), v.name.clone())).collect()))
+        .collect();
     match kind {
         Kind::Dictation => vec![
             Group("Activation"),
@@ -77,26 +110,27 @@ fn rows(kind: Kind) -> Vec<Row> {
             Toggle("Send with Enter", "auto_enter"),
             Group("Appearance"),
             Slider("Glass", "glass", PERCENT),
-            Segment("Position", "position", vec![("bottom", "Bottom"), ("top", "Top")]),
+            Segment("Position", "position", opts(&[("bottom", "Bottom"), ("top", "Top")])),
             Toggle("Remember dragged spot", "remember_drag"),
             Toggle("Show in screen share", "show_in_capture"),
             Group("Transcription"),
-            Segment("Language", "language", vec![("es", "Spanish"), ("en", "English"), ("auto", "Auto")]),
+            Segment("Language", "lang", languages),
+            Toggle("Detect language automatically", AUTO_LANGUAGE),
             Group(""),
             Danger,
         ],
-        Kind::Voice => vec![
-            Group("Talk mode"),
-            Segment("Voice", "tts_voice", vec![("es-CO-SalomeNeural", "Salom\u{e9}"), ("es-CO-GonzaloNeural", "Gonzalo"), ("es-MX-DaliaNeural", "Dalia")]),
-            // Six voices don't fit in one row: the second row edits the
-            // same setting; only the row holding the current voice shows a chip.
-            Segment("", "tts_voice", vec![("es-MX-JorgeNeural", "Jorge"), ("es-AR-ElenaNeural", "Elena"), ("es-US-AlonsoNeural", "Alonso")]),
-            Segment("Speed", "tts_rate", vec![("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")]),
-            Slider("Volume", "tts_volume", PERCENT),
-            Toggle("\u{0}wake", "wake_word"), // label built from the phrase
-            Text("Wake phrase", "wake_phrase"),
-            Toggle("Speak only when I talk", "speak_only_spoken"),
-        ],
+        Kind::Voice => {
+            let mut v = vec![Group("Talk mode")];
+            v.extend(voice_rows);
+            v.extend([
+                Segment("Speed", "tts_rate", opts(&[("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")])),
+                Slider("Volume", "tts_volume", PERCENT),
+                Toggle("\u{0}wake", "wake_word"), // label built from the phrase
+                Text("Wake phrase", "wake_phrase"),
+                Toggle("Speak only when I talk", "speak_only_spoken"),
+            ]);
+            v
+        }
     }
 }
 
@@ -179,6 +213,17 @@ impl Panel {
         }
     }
 
+    /// Rebuilds the rows after claudeTalk's language changed (other voices,
+    /// other languages installed). The texts are translated at paint time.
+    pub fn relabel(&mut self, cfg: &Config) {
+        self.rows = rows(self.kind);
+        for row in &self.rows {
+            if let Row::Toggle(_, key) = row {
+                self.toggle_t.insert(key, if switch_on(key, cfg) { 1.0 } else { 0.0 });
+            }
+        }
+    }
+
     fn items(&self) -> (Vec<Item>, f32) {
         let mut y = PAD + TITLE_H;
         let mut out = Vec::new();
@@ -238,7 +283,7 @@ impl Panel {
         self.anim = Some(Tween::new(0.0, 1.0, 180.0, gfx::out_cubic));
         for row in &self.rows {
             if let Row::Toggle(_, key) = row {
-                self.toggle_t.insert(key, if cfg.bool(key) { 1.0 } else { 0.0 });
+                self.toggle_t.insert(key, if switch_on(key, cfg) { 1.0 } else { 0.0 });
             }
         }
     }
@@ -262,7 +307,7 @@ impl Panel {
         self.phase += 0.12;
         for row in &self.rows {
             if let Row::Toggle(_, key) = row {
-                let target = if cfg.bool(key) { 1.0 } else { 0.0 };
+                let target = if switch_on(key, cfg) { 1.0 } else { 0.0 };
                 let cur = *self.toggle_t.get(key).unwrap_or(&target);
                 self.toggle_t.insert(key, gfx::lerp(cur, target, 0.3));
             }
@@ -289,7 +334,7 @@ impl Panel {
             || self.capturing
             || self.rows.iter().any(|r| match r {
                 Row::Toggle(_, key) => {
-                    let target = if cfg.bool(key) { 1.0 } else { 0.0 };
+                    let target = if switch_on(key, cfg) { 1.0 } else { 0.0 };
                     (self.toggle_t.get(key).unwrap_or(&target) - target).abs() > 0.004
                 }
                 _ => false,
@@ -318,7 +363,7 @@ impl Panel {
         self.bg = Some(glass::glassify(raw, m));
         for row in &self.rows {
             if let Row::Toggle(_, key) = row {
-                self.toggle_t.insert(key, if cfg.bool(key) { 1.0 } else { 0.0 });
+                self.toggle_t.insert(key, if switch_on(key, cfg) { 1.0 } else { 0.0 });
             }
         }
     }
@@ -380,7 +425,7 @@ impl Panel {
     fn hotkey_text(&self, cfg: &Config) -> String {
         if self.capturing {
             if self.capture_live.is_empty() {
-                "Press the keys".into()
+                tr("Press the keys")
             } else {
                 hotkey_label(&self.capture_live)
             }
@@ -493,7 +538,12 @@ impl Panel {
         }
         let (Some(index), Some(part)) = (index, part) else { return Vec::new() };
         match self.rows[index].clone() {
-            Row::Toggle(_, key) => vec![Action::Set(key.into(), json!(!cfg.bool(key)))],
+            Row::Toggle(_, key) if key == AUTO_LANGUAGE => {
+                let v = if switch_on(key, cfg) { cfg.str("lang") } else { "auto".into() };
+                let v = if v.is_empty() { ct_core::lang::current_code() } else { v };
+                vec![Action::Set("language".into(), json!(v))]
+            }
+            Row::Toggle(_, key) => vec![Action::Set(key.into(), json!(!switch_on(key, cfg)))],
             Row::Segment(_, key, opts) => match part {
                 Part::Seg(n) => vec![Action::Set(key.into(), json!(opts[n].0))],
                 _ => Vec::new(),
@@ -575,8 +625,8 @@ impl Panel {
         // from here on, relative to the glass
         let ts = Transform::from_scale(s, s).pre_translate(INSET, INSET);
         let (ox, oy) = (INSET * s, INSET * s);
-        let title = if self.kind == Kind::Dictation { "Dictation" } else { "Claude's voice" };
-        draw_text(&mut pm, title, R::new(PAD + 4.0, PAD, 200.0, TITLE_H - 8.0), &TextStyle::bold(11.0), text(true), HAlign::Left, VAlign::Center, s, ox, oy);
+        let title = tr(if self.kind == Kind::Dictation { "Dictation" } else { "Claude's voice" });
+        draw_text(&mut pm, &title, R::new(PAD + 4.0, PAD, 200.0, TITLE_H - 8.0), &TextStyle::bold(11.0), text(true), HAlign::Left, VAlign::Center, s, ox, oy);
         self.paint_close(&mut pm, ts);
 
         let (items, _) = self.items();
@@ -586,7 +636,7 @@ impl Panel {
                     if !label.is_empty() {
                         draw_text(
                             &mut pm,
-                            &label.to_uppercase(),
+                            &tr(label).to_uppercase(),
                             R::new(PAD + 4.0, y - GROUP_TITLE_H, 200.0, GROUP_TITLE_H - 4.0),
                             &TextStyle::new(8.0),
                             text(false),
@@ -639,17 +689,26 @@ impl Panel {
             return;
         }
         let label = match row {
-            Row::Hotkey(l) | Row::Slider(l, ..) | Row::Segment(l, ..) | Row::Text(l, _) => l.to_string(),
-            Row::Toggle(l, _) if l.starts_with('\u{0}') => format!("Start with \u{201c}{}\u{201d}", cfg.str("wake_phrase")),
-            Row::Toggle(l, _) => l.to_string(),
+            Row::Hotkey(l) | Row::Slider(l, ..) | Row::Segment(l, ..) | Row::Text(l, _) => tr(l),
+            Row::Toggle(l, _) if l.starts_with('\u{0}') => tr("Start with \u{201c}{phrase}\u{201d}").replace("{phrase}", &cfg.str("wake_phrase")),
+            Row::Toggle(l, _) => tr(l),
             _ => String::new(),
         };
-        draw_text(pm, &label, rect.adjusted(14.0, 0.0, -14.0, 0.0), &st, text(true), HAlign::Left, VAlign::Center, s, ox, oy);
         let control = self.control_rect(index, rect, cfg);
+        // Translations run longer than the English: shrink a label that
+        // would reach its control (a slider's value sits left of it).
+        let value_w = if matches!(row, Row::Slider(_, _, Range { fmt: Some(_), .. })) { SLIDER_VALUE_W + 4.0 } else { 0.0 };
+        let room = control.x - value_w - 8.0 - (rect.x + 14.0);
+        let mut label_st = TextStyle::new(st.pt);
+        let wide = text_width(&label, &label_st);
+        if wide > room && room > 0.0 {
+            label_st.pt = (st.pt * room / wide).max(7.0);
+        }
+        draw_text(pm, &label, rect.adjusted(14.0, 0.0, -14.0, 0.0), &label_st, text(true), HAlign::Left, VAlign::Center, s, ox, oy);
         let hovered = self.row_hovered(index);
         match row {
             Row::Toggle(_, key) => {
-                let t = *self.toggle_t.get(key).unwrap_or(&if cfg.bool(key) { 1.0 } else { 0.0 });
+                let t = *self.toggle_t.get(key).unwrap_or(&if switch_on(key, cfg) { 1.0 } else { 0.0 });
                 let off = if hovered { 60.0 } else { 45.0 };
                 gfx::fill(pm, &rounded(control, TOGGLE_H / 2.0), white(gfx::lerp(off, 230.0, t) as u8), ts);
                 let kr = TOGGLE_H / 2.0 - 3.0;
@@ -676,7 +735,7 @@ impl Panel {
                     } else if hover_n == Some(i) {
                         gfx::fill(pm, &chip, white(14), ts);
                     }
-                    draw_text(pm, label, seg, &TextStyle::new(8.5), text(selected), HAlign::Center, VAlign::Center, s, ox, oy);
+                    draw_text(pm, &tr(label), seg, &TextStyle::new(8.5), text(selected), HAlign::Center, VAlign::Center, s, ox, oy);
                 }
             }
             Row::Slider(_, key, rng) => {
@@ -735,16 +794,16 @@ impl Panel {
             if matches!(self.hover, Some((Some(i), _)) if i == index) {
                 gfx::fill(pm, &rounded(rect.adjusted(4.0, 4.0, -4.0, -4.0), 9.0), white(14), ts);
             }
-            draw_text(pm, "Turn off dictation", rect.adjusted(14.0, 0.0, -14.0, 0.0), &st, text(true), HAlign::Left, VAlign::Center, s, ox, oy);
+            draw_text(pm, &tr("Turn off dictation"), rect.adjusted(14.0, 0.0, -14.0, 0.0), &st, text(true), HAlign::Left, VAlign::Center, s, ox, oy);
             return;
         }
         let (confirm, cancel) = Self::confirm_rects(rect);
-        draw_text(pm, "Turn off?", R::new(rect.x + 14.0, rect.y, cancel.x - rect.x - 22.0, rect.h), &st, text(true), HAlign::Left, VAlign::Center, s, ox, oy);
+        draw_text(pm, &tr("Turn off?"), R::new(rect.x + 14.0, rect.y, cancel.x - rect.x - 22.0, rect.h), &st, text(true), HAlign::Left, VAlign::Center, s, ox, oy);
         let hover_part = self.hover.and_then(|h| h.1);
         gfx::fill(pm, &rounded(cancel, 14.0), white(if hover_part == Some(Part::Cancel) { 34 } else { 22 }), ts);
-        draw_text(pm, "Cancel", cancel, &TextStyle::new(9.0), text(true), HAlign::Center, VAlign::Center, s, ox, oy);
+        draw_text(pm, &tr("Cancel"), cancel, &TextStyle::new(9.0), text(true), HAlign::Center, VAlign::Center, s, ox, oy);
         gfx::fill(pm, &rounded(confirm, 14.0), white(if hover_part == Some(Part::Confirm) { 255 } else { 225 }), ts);
-        draw_text(pm, "Turn off", confirm, &TextStyle::new(9.0), gfx::black(255), HAlign::Center, VAlign::Center, s, ox, oy);
+        draw_text(pm, &tr("Turn off"), confirm, &TextStyle::new(9.0), gfx::black(255), HAlign::Center, VAlign::Center, s, ox, oy);
     }
 }
 

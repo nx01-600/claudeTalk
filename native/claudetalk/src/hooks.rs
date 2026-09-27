@@ -12,16 +12,20 @@ use std::time::Duration;
 const MAX_SPOKEN_CHARS: usize = 400;
 /// Talk prompts between two full copies of the rules (see RULES).
 const RULES_EVERY: u32 = 8;
-pub const LEFT_ON_SCREEN: &str = "Te dej\u{e9} la respuesta en pantalla.";
 
 const RULES: &str = "claudeTalk talk mode is ON: the user hears you through text-to-speech. Answer for a listener:
-- LANGUAGE: write AND speak in the language of the user's messages (usually Spanish). These rules are in English only for you; that is not a reason to switch. Never change language unless the user asks for it.
+- LANGUAGE: write AND speak in the language of the user's messages ({LANG} is claudeTalk's language setting and its voices speak it). These rules are in English only for you; that is not a reason to switch. Never change language unless the user asks for it.
 - If the answer fits in 2-3 plain sentences, just write it, conversational, no markdown. It is read aloud automatically. Do not call say.
-- If the answer needs code, tables, lists or more than ~3 sentences: first call the claudeTalk say tool with 1-2 sentences that give the gist or point to the screen (e.g. \"Te deje en pantalla los tres pasos\"), then write the full detail. Never say the same thing you write.
-- For work with tools: call say briefly when you start (\"Voy a revisar el hook\") and, if the result is long, again before the final write-up.
+- If the answer needs code, tables, lists or more than ~3 sentences: first call the claudeTalk say tool with 1-2 sentences that give the gist or point to the screen (e.g. \"I left the three steps on screen\", in the user's language), then write the full detail. Never say the same thing you write.
+- For work with tools: call say briefly when you start (\"Checking the hook now\") and, if the result is long, again before the final write-up.
 - Never put code, paths, symbols or markdown in say.
 - If the user asks to stop talking or to turn talk mode off/on, or to change any claudeTalk setting (voice, speed, volume, silence, sensitivity, hotkey, Enter, wake word, speak only to spoken messages, screen share, glass, position, language), use the claudeTalk talk skill.
 ";
+
+/// RULES with claudeTalk's language filled in.
+fn rules() -> String {
+    RULES.replace("{LANG}", &ct_core::lang::current().name)
+}
 
 const SPOKEN_RULE: &str = "- This message starts with a microphone mark: the user SPOKE it and Whisper transcribed it. Read it charitably: expect misheard words (e.g. Cloud for Claude), and stray phrases at the end that are really your own voice picked up by the mic; ignore those. Ask only if the meaning is truly unclear.\n";
 
@@ -114,8 +118,8 @@ pub fn prompt() {
             sessions::set_state(&st.session, &now);
         });
         match (full, spoken) {
-            (true, true) => format!("{RULES}{SPOKEN_RULE}"),
-            (true, false) => RULES.to_string(),
+            (true, true) => format!("{}{SPOKEN_RULE}", rules()),
+            (true, false) => rules(),
             (false, true) => format!("{REMINDER}{SPOKEN_REMINDER}"),
             (false, false) => REMINDER.to_string(),
         }
@@ -171,7 +175,7 @@ pub fn stop() {
     if fits {
         speak(&clean, &st);
     } else if !turn.spoke || work_after_say {
-        speak(LEFT_ON_SCREEN, &st);
+        speak(&ct_core::lang::current().left_on_screen, &st);
     }
 }
 

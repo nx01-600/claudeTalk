@@ -9,7 +9,9 @@ use ct_core::paths;
 use serde_json::{json, Map, Value};
 use std::time::SystemTime;
 
+/// Defaults; the language-dependent ones come from claudeTalk's language.
 pub fn defaults() -> Map<String, Value> {
+    let pack = ct_core::lang::current();
     let v = json!({
         "hotkey": [0x11, 0x10, 0x20],
         "silence_ms": 2000,
@@ -17,15 +19,16 @@ pub fn defaults() -> Map<String, Value> {
         "sound": true,
         "auto_enter": false,
         "wake_word": false,
-        "wake_phrase": "Oye Claude",
+        "wake_phrase": pack.wake_phrase,
         "speak_only_spoken": false,
         "glass": 60,
         "position": "bottom",
         "remember_drag": false,
         "drag_pos": null,
         "show_in_capture": false,
-        "language": "es",
-        "tts_voice": "es-CO-GonzaloNeural",
+        "lang": pack.code,
+        "language": pack.code,
+        "tts_voice": pack.default_voice(),
         "tts_rate": "+0%",
         "tts_volume": 100,
         "edge_version": ""

@@ -109,12 +109,12 @@ fn main() {
                     let pct = if total > 0 { done * 100 / total } else { 0 };
                     if pct != last && file == stt::WHISPER_FILE {
                         last = pct;
-                        shared.post(app::UiEvent::Status(format!("downloading the voice model {pct}%")));
+                        shared.post(app::UiEvent::Status(ui::panel::tr("downloading the voice model {pct}%").replace("{pct}", &pct.to_string())));
                     }
                 });
                 if let Err(e) = result {
                     println!("[model] download failed: {e}");
-                    shared.post(app::UiEvent::Status("voice model download failed (see log)".into()));
+                    shared.post(app::UiEvent::Status(ui::panel::tr("voice model download failed (see log)")));
                     return;
                 }
                 let label = config::hotkey_label(&shared.config.lock().unwrap().hotkey());

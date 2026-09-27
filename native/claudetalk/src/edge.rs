@@ -212,6 +212,44 @@ pub fn synthesize(text: &str, voice: &str, rate: &str, out: &Sender<Vec<u8>>) ->
     }
 }
 
+/// `claudetalk voices CODE`: the Edge voices of a language, one per line as
+/// `id  gender  locale`, for Claude to pick from when writing a language
+/// pack. Returns the exit code.
+pub fn print_voices(code: &str) -> i32 {
+    let Some(code) = ct_core::lang::normalize_code(code) else {
+        eprintln!("usage: claudetalk voices CODE   (a language code like fr, pt, de)");
+        return 2;
+    };
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let url = format!(
+        "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken={TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC={}&Sec-MS-GEC-Version=1-{}",
+        sec_ms_gec(now),
+        edge_version()
+    );
+    let body = ct_core::http::agent().get(&url).call().and_then(|mut r| r.body_mut().read_to_string());
+    let list: serde_json::Value = match body.map_err(|e| e.to_string()).and_then(|b| serde_json::from_str(&b).map_err(|e| e.to_string())) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("claudeTalk: could not get the voice list: {e}");
+            return 1;
+        }
+    };
+    let prefix = format!("{code}-");
+    let mut n = 0;
+    for v in list.as_array().into_iter().flatten() {
+        let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("");
+        if s("Locale").to_ascii_lowercase().starts_with(&prefix) {
+            println!("{}  {}  {}", s("ShortName"), s("Gender"), s("Locale"));
+            n += 1;
+        }
+    }
+    if n == 0 {
+        eprintln!("claudeTalk: Edge has no voices for '{code}'.");
+        return 1;
+    }
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

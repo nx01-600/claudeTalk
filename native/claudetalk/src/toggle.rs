@@ -8,8 +8,17 @@ use ct_core::settings::{self, voice_name};
 use serde_json::{json, Value};
 use unicode_normalization::UnicodeNormalization;
 
-pub const HELP: &str = r#"Settings (set <setting> <value>):
-  voice        Salome | Gonzalo | Dalia | Jorge | Elena | Alonso   (Claude's voice in this session)
+/// The settings help, with the current language's voices.
+pub fn help() -> String {
+    let pack = ct_core::lang::current();
+    let voices: Vec<&str> = pack.voices.iter().map(|v| v.name.as_str()).collect();
+    let langs: Vec<String> = ct_core::lang::available().into_iter().map(|(c, _)| c).collect();
+    HELP.replace("{VOICES}", &voices.join(" | ")).replace("{LANGS}", &langs.join(" | "))
+}
+
+const HELP: &str = r#"Settings (set <setting> <value>):
+  language     {LANGS} | any other code, e.g. fr   (claudeTalk's language: voices, dictation, wake phrase, panel)
+  voice        {VOICES}   (Claude's voice in this session)
   rate         slow | normal | fast | faster | +N% | -N%   (Claude's speed)
   volume       0-100                                     (Claude's volume)
   silence      seconds, 0.5 to 10   (pause that ends a dictation)
@@ -18,13 +27,18 @@ pub const HELP: &str = r#"Settings (set <setting> <value>):
   sound        on | off   (chime when recording starts)
   enter        on | off   (press Enter after pasting = send the message)
   wake         on | off   (start dictating by saying the wake phrase)
-  phrase       any words, e.g. "Hola Jarvis"   (the wake phrase; default "Oye Claude")
+  phrase       any words, e.g. "Hey Jarvis"   (the wake phrase; each language has its default)
   spoken       on | off   (talk mode answers out loud only dictated messages)
   share        on | off   (overlay visible in screen sharing)
   glass        0 to 100   (glass effect intensity)
   position     bottom | top   (also forgets a dragged spot)
   drag         on | off   (the pill comes back where you last dragged it)
-  language     es | en | auto   (dictation language)"#;
+  dictation    auto | same   (auto = Whisper detects the language; same = claudeTalk's language)
+
+Languages beyond the built-in ones (see docs/LANGUAGES.md):
+  template CODE   prints the blank language pack to translate
+  pack FILE       installs a filled pack, then `set language CODE`
+  claudetalk voices CODE   lists Edge's voices for a language"#;
 
 /// Lowercase without accents, so "Salomé", "salome" and "SALOME" all match.
 pub fn plain(s: &str) -> String {
@@ -135,22 +149,19 @@ pub fn resolve(name: &str, v: &str) -> Result<(&'static str, Value, String), Str
     let n = plain(name);
     let is = |names: &[&str]| names.contains(&n.as_str());
     if is(&["voice", "voz"]) {
-        let voices = [
-            ("salom", "es-CO-SalomeNeural"),
-            ("gonzalo", "es-CO-GonzaloNeural"),
-            ("dalia", "es-MX-DaliaNeural"),
-            ("jorge", "es-MX-JorgeNeural"),
-            ("elena", "es-AR-ElenaNeural"),
-            ("alonso", "es-US-AlonsoNeural"),
-        ];
-        if let Some((_, code)) = voices.iter().find(|(k, _)| p.starts_with(k)) {
-            return Ok(("tts_voice", json!(code), format!("voice {code}")));
+        // names of the current language first, then the other built-in ones
+        let mut packs = vec![ct_core::lang::current()];
+        packs.extend(["es", "en"].iter().filter_map(|c| ct_core::lang::builtin(c)));
+        let found = packs.iter().flat_map(|pk| pk.voices.iter()).find(|x| !p.is_empty() && plain(&x.name).starts_with(&p));
+        if let Some(x) = found {
+            return Ok(("tts_voice", json!(x.id), format!("voice {}", x.id)));
         }
-        let re = regex::Regex::new(r"(?i)^[a-z]{2}-[a-z]{2}-\w+Neural$").unwrap();
+        let re = regex::Regex::new(r"(?i)^[a-z]{2,3}-[a-z]{2,4}(-[a-z]+)?-\w+Neural$").unwrap();
         if re.is_match(v) {
             return Ok(("tts_voice", json!(v), format!("voice {v}")));
         }
-        return Err(format!("unknown voice '{v}'. Options: Salome, Gonzalo, Dalia, Jorge, Elena, Alonso."));
+        let names: Vec<String> = packs[0].voices.iter().map(|x| x.name.clone()).collect();
+        return Err(format!("unknown voice '{v}'. Options: {}.", names.join(", ")));
     }
     if is(&["rate", "speed", "velocidad"]) {
         let rate = match p.as_str() {
@@ -201,7 +212,7 @@ pub fn resolve(name: &str, v: &str) -> Result<(&'static str, Value, String), Str
         return boolean("auto_enter", "send with Enter");
     }
     if is(&["wake", "wake_word", "oye"]) {
-        return boolean("wake_word", "Oye Claude");
+        return boolean("wake_word", "wake phrase");
     }
     if is(&["phrase", "wake_phrase", "frase"]) {
         let phrase = v.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -234,19 +245,61 @@ pub fn resolve(name: &str, v: &str) -> Result<(&'static str, Value, String), Str
     if is(&["drag", "remember_drag", "arrastre"]) {
         return boolean("remember_drag", "remember dragged spot");
     }
-    if is(&["language", "idioma"]) {
-        if ["es", "span", "espa"].iter().any(|w| p.starts_with(w)) {
-            return Ok(("language", json!("es"), "dictation in Spanish".into()));
-        }
-        if ["en", "engl", "ingl"].iter().any(|w| p.starts_with(w)) {
-            return Ok(("language", json!("en"), "dictation in English".into()));
-        }
+    if is(&["dictation", "dictado"]) || (is(&["language", "idioma"]) && p.starts_with("auto")) {
         if p.starts_with("auto") {
-            return Ok(("language", json!("auto"), "dictation language auto".into()));
+            return Ok(("language", json!("auto"), "dictation detects the language".into()));
         }
-        return Err("language is es, en or auto.".into());
+        let code = ct_core::lang::current_code();
+        return Ok(("language", json!(code), format!("dictation in claudeTalk's language ({code})")));
     }
-    Err(format!("unknown setting '{name}'.\n{HELP}"))
+    Err(format!("unknown setting '{name}'.\n{}", help()))
+}
+
+/// A language as the user may say it: a code, or a name in English or
+/// Spanish for the common ones.
+pub fn language_code(v: &str) -> Option<String> {
+    let p = plain(v);
+    let names: [(&[&str], &str); 12] = [
+        (&["span", "espa", "castell"], "es"),
+        (&["engl", "ingl"], "en"),
+        (&["fren", "franc"], "fr"),
+        (&["germ", "alem", "deutsch"], "de"),
+        (&["ital"], "it"),
+        (&["portu"], "pt"),
+        (&["japan", "japo"], "ja"),
+        (&["chin"], "zh"),
+        (&["kore", "corea"], "ko"),
+        (&["russ", "rus"], "ru"),
+        (&["dutch", "holand", "neerl"], "nl"),
+        (&["catal"], "ca"),
+    ];
+    if let Some((_, code)) = names.iter().find(|(ws, _)| ws.iter().any(|w| p.starts_with(w))) {
+        return Some(code.to_string());
+    }
+    ct_core::lang::normalize_code(&p)
+}
+
+/// `set language X`: switches everything to that language, or tells Claude
+/// how to make the pack when there is none yet.
+fn set_language(v: &str) -> (String, i32) {
+    let Some(code) = language_code(v) else {
+        return (format!("claudeTalk: '{v}' is not a language. Use a code like es, en, fr, pt, de."), 1);
+    };
+    match ct_core::lang::apply(&code) {
+        Ok(p) => {
+            let voices: Vec<&str> = p.voices.iter().map(|x| x.name.as_str()).collect();
+            (format!(
+                "claudeTalk: language {} ({}). Voices: {}. Wake phrase default: \"{}\". Dictation follows it. The gear panel switches within a second. Applied now.",
+                p.name, p.code, voices.join(", "), p.wake_phrase
+            ), 0)
+        }
+        Err(_) => (format!(
+            "claudeTalk: there is no language pack for '{code}' yet. Make one (see the skill):\n\
+             1. `claudetalk voices {code}` lists Edge's voices for it; pick 2 to 6, men and women alternating, the most natural one first.\n\
+             2. `claudetalk toggle template {code}` prints the blank; translate every value (keep the JSON keys and the {{...}} placeholders), fill name, voices and the lines.\n\
+             3. Save it to a file and run `claudetalk toggle pack FILE`, then `claudetalk toggle set language {code}`."
+        ), 3),
+    }
 }
 
 /// Runs the action; returns the text to print and the exit code.
@@ -254,9 +307,25 @@ pub fn run(args: &[String]) -> (String, i32) {
     let mut action = plain(args.first().map(String::as_str).unwrap_or(""));
     let mut value = args.get(1).cloned().unwrap_or_default();
     let mut extra = args.get(2..).map(|a| a.join(" ")).unwrap_or_default();
-    const ACTIONS: [&str; 11] = ["on", "off", "toggle", "status", "stop", "settings", "set", "voice", "rate", "volume", "silence"];
+    const ACTIONS: [&str; 13] = ["on", "off", "toggle", "status", "stop", "settings", "set", "voice", "rate", "volume", "silence", "template", "pack"];
     if !ACTIONS.contains(&action.as_str()) {
-        return (format!("claudeTalk: unknown action '{action}'. Use on, off, toggle, status, stop, settings or set.\n{HELP}"), 1);
+        return (format!("claudeTalk: unknown action '{action}'. Use on, off, toggle, status, stop, settings or set.\n{}", help()), 1);
+    }
+    if action == "template" {
+        let Some(code) = language_code(&value) else {
+            return ("claudeTalk: usage: template CODE (a language code like fr).".into(), 1);
+        };
+        return (serde_json::to_string_pretty(&ct_core::lang::template(&code)).unwrap(), 0);
+    }
+    if action == "pack" {
+        let raw = match std::fs::read_to_string(&value) {
+            Ok(r) => r,
+            Err(e) => return (format!("claudeTalk: can't read '{value}': {e}"), 1),
+        };
+        return match ct_core::lang::install(&raw) {
+            Ok(p) => (format!("claudeTalk: language pack {} ({}) installed. Run `set language {}` to use it.", p.name, p.code, p.code), 0),
+            Err(e) => (format!("claudeTalk: {e}"), 1),
+        };
     }
     if ["voice", "rate", "volume", "silence"].contains(&action.as_str()) {
         extra = value;
@@ -270,7 +339,9 @@ pub fn run(args: &[String]) -> (String, i32) {
             for (k, v) in settings::read_all() {
                 out += &format!("  {k} = {v}\n");
             }
-            out += HELP;
+            let langs: Vec<String> = ct_core::lang::available().into_iter().map(|(c, n)| format!("{c} ({n})")).collect();
+            out += &format!("  -> claudeTalk language: {} | installed: {}\n", ct_core::lang::current_code(), langs.join(", "));
+            out += &help();
             return (out, 0);
         }
         "stop" => {
@@ -324,6 +395,9 @@ pub fn run(args: &[String]) -> (String, i32) {
 }
 
 fn set(name: &str, value: &str) -> (String, i32) {
+    if ["language", "idioma", "lang"].contains(&plain(name).as_str()) && !plain(value).starts_with("auto") {
+        return set_language(value);
+    }
     let (key, val, desc) = match resolve(name, value) {
         Ok(r) => r,
         Err(e) => return (format!("claudeTalk: {e}"), 1),
@@ -382,7 +456,10 @@ mod tests {
         assert!(resolve("enter", "maybe").is_err());
         assert_eq!(val("frase", "  Hola   Jarvis "), json!("Hola Jarvis"));
         assert_eq!(val("posicion", "arriba"), json!("top"));
-        assert_eq!(val("idioma", "inglés"), json!("en"));
+        assert_eq!(val("idioma", "auto"), json!("auto"));
+        assert_eq!(language_code("inglés").as_deref(), Some("en"));
+        assert_eq!(language_code("Français").as_deref(), Some("fr"));
+        assert_eq!(language_code("pt-BR").as_deref(), Some("pt"));
         assert!(resolve("tema", "x").is_err());
         assert!(resolve("nada", "x").is_err());
     }

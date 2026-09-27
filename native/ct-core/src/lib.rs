@@ -4,6 +4,7 @@
 
 pub mod fsutil;
 pub mod http;
+pub mod lang;
 pub mod lock;
 pub mod log;
 pub mod paths;

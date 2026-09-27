@@ -65,12 +65,12 @@ impl Duck {
 /// How long the speaker waits for more phrases before exiting.
 const IDLE_EXIT: Duration = Duration::from_secs(120);
 
-/// Fixed phrases worth caching on disk: they play instantly and offline.
-const CACHEABLE: [&str; 3] = [
-    "Te dej\u{e9} la respuesta en pantalla.",
-    crate::SAMPLE_VOICE,
-    crate::SAMPLE_VOLUME,
-];
+/// Fixed phrases worth caching on disk (they play instantly and offline):
+/// the current language's own lines.
+fn cacheable(text: &str) -> bool {
+    let p = ct_core::lang::current();
+    [&p.left_on_screen, &p.sample_voice, &p.sample_volume].iter().any(|t| t.as_str() == text)
+}
 
 pub fn run() {
     let Some(mutex) = NamedMutex::new(SPEAKER_MUTEX) else { return };
@@ -132,7 +132,7 @@ fn wait_for_more(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, cut: HAND
 }
 
 fn cache_path(voice: &str, rate: &str, text: &str) -> Option<PathBuf> {
-    if !CACHEABLE.contains(&text) {
+    if !cacheable(text) {
         return None;
     }
     let key: String = Sha256::digest(format!("{voice}|{rate}|{text}").as_bytes())
@@ -149,7 +149,8 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
     if paths::ducking_flag().exists() {
         rate = queue::ducked_rate(&rate);
     }
-    let voice = if item.voice.is_empty() { ct_core::settings::DEFAULT_VOICE } else { &item.voice };
+    let fallback = ct_core::settings::default_voice();
+    let voice = if item.voice.is_empty() { &fallback } else { &item.voice };
     // Cut while we were getting ready: Stop-Speech deleted the item.
     if !file.exists() {
         return;

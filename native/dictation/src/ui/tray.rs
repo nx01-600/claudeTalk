@@ -118,10 +118,10 @@ impl Tray {
     pub fn menu(&self) -> usize {
         unsafe {
             let m = CreatePopupMenu();
-            AppendMenuW(m, MF_STRING | MF_GRAYED, 1, wide(&format!("Dictation: {}", self.label)).as_ptr());
+            AppendMenuW(m, MF_STRING | MF_GRAYED, 1, wide(&super::panel::tr("Dictation: {label}").replace("{label}", &self.label)).as_ptr());
             AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
-            AppendMenuW(m, MF_STRING, CMD_SETTINGS, wide("Settings").as_ptr());
-            AppendMenuW(m, MF_STRING, CMD_QUIT, wide("Turn off dictation").as_ptr());
+            AppendMenuW(m, MF_STRING, CMD_SETTINGS, wide(&super::panel::tr("Settings")).as_ptr());
+            AppendMenuW(m, MF_STRING, CMD_QUIT, wide(&super::panel::tr("Turn off dictation")).as_ptr());
             let mut p = POINT { x: 0, y: 0 };
             GetCursorPos(&mut p);
             // Required so the menu closes when clicking elsewhere.
@@ -139,7 +139,7 @@ pub fn confirm_quit() -> bool {
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
-            wide("Turn off dictation completely?").as_ptr(),
+            wide(&super::panel::tr("Turn off dictation completely?")).as_ptr(),
             wide("claudeTalk").as_ptr(),
             MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST,
         ) == IDYES

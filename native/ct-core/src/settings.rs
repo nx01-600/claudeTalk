@@ -6,30 +6,13 @@ use crate::paths;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_VOICE: &str = "es-CO-GonzaloNeural";
-
-/// Handed out in this order to sessions that turn talk mode on while others
-/// are talking: men and women alternate, and the accents differ.
-pub const VOICE_POOL: [&str; 6] = [
-    "es-CO-GonzaloNeural",
-    "es-CO-SalomeNeural",
-    "es-MX-JorgeNeural",
-    "es-MX-DaliaNeural",
-    "es-US-AlonsoNeural",
-    "es-AR-ElenaNeural",
-];
+/// The default voice of the current language.
+pub fn default_voice() -> String {
+    crate::lang::current().default_voice().to_string()
+}
 
 pub fn voice_name(voice: &str) -> String {
-    match voice {
-        "es-CO-SalomeNeural" => "Salom\u{e9}",
-        "es-CO-GonzaloNeural" => "Gonzalo",
-        "es-MX-DaliaNeural" => "Dalia",
-        "es-MX-JorgeNeural" => "Jorge",
-        "es-AR-ElenaNeural" => "Elena",
-        "es-US-AlonsoNeural" => "Alonso",
-        other => other,
-    }
-    .to_string()
+    crate::lang::voice_name(voice)
 }
 
 /// dictation.json as an ordered map (missing or broken file = empty).
@@ -60,7 +43,7 @@ pub fn gear() -> Gear {
     let all = read_all();
     let s = |k: &str| all.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
     Gear {
-        voice: s("tts_voice").unwrap_or_else(|| DEFAULT_VOICE.to_string()),
+        voice: s("tts_voice").unwrap_or_else(default_voice),
         rate: s("tts_rate").unwrap_or_else(|| "+0%".to_string()),
         volume: all.get("tts_volume").and_then(as_int).unwrap_or(100),
         only_spoken: all.get("speak_only_spoken").is_some_and(truthy),

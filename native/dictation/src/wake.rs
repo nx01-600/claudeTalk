@@ -113,15 +113,15 @@ fn matches_custom(text: &str, phrase: &str) -> bool {
 }
 
 /// strict: only the full "oye/hey + name" form (while Claude is talking).
-/// `phrase` is the one set in the gear; "Oye Claude" has its own tuned
-/// matching.
+/// `phrase` is the one set in the gear; "Oye Claude" and "Hey Claude" (the
+/// Spanish and English defaults) have their own tuned matching.
 pub fn is_wake_phrase(text: &str, strict: bool, phrase: &str) -> bool {
     let text = normalize(text);
     let mut phrase = normalize(phrase);
     if phrase.is_empty() {
         phrase = DEFAULT_PHRASE.into();
     }
-    if phrase != DEFAULT_PHRASE {
+    if phrase != DEFAULT_PHRASE && phrase != "hey claude" {
         return matches_custom(&text, &phrase);
     }
     if wake_re().is_match(&text) {
@@ -282,6 +282,12 @@ fn check(pcm: &[f32], strict: bool, transcriber: &Transcriber, vad: &mut Vad, h:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn english_default_uses_tuned_matching() {
+        assert!(is_wake_phrase("Hey Cloud.", false, "Hey Claude"));
+        assert!(is_wake_phrase("hey claude, what's up", true, "Hey Claude"));
+    }
 
     #[test]
     fn default_phrase() {
