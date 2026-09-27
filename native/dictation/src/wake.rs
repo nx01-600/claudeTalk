@@ -270,7 +270,8 @@ fn check(pcm: &[f32], strict: bool, transcriber: &Transcriber, vad: &mut Vad, h:
         return false;
     }
     let hit = is_wake_phrase(&text, strict, &(h.phrase)());
-    println!("[wake] heard {text:?}{}", if hit { " -> wake" } else { "" });
+    // Not the text: the wake listener hears everything said near the mic.
+    println!("[wake] heard {} words{}", text.split_whitespace().count(), if hit { " -> wake" } else { "" });
     if hit && (h.should_listen)() && !(h.is_busy)() {
         (h.on_wake)();
         return true;

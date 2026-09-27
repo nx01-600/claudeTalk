@@ -180,7 +180,8 @@ impl Shared {
                 String::new()
             }
         };
-        println!("[text] {text:?} ({:.2}s)", t0.elapsed().as_secs_f64());
+        // the length only: what the user said never goes into the log
+        println!("[text] {} words ({:.2}s)", text.split_whitespace().count(), t0.elapsed().as_secs_f64());
         if text.is_empty() {
             self.post(UiEvent::Stopped);
             println!("[empty] nothing to paste");

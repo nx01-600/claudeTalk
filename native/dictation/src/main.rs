@@ -6,7 +6,8 @@
 //!   claudetalk-dictation --auto     started by the SessionStart hook; exits
 //!                                   once no Claude Code session is left
 //!
-//! Output goes to %TEMP%\claudetalk-dictation.log.
+//! Output goes to %TEMP%\claudetalk-dictation.log, emptied at every start.
+//! It never holds what the user said, only lengths and events.
 
 #![windows_subsystem = "windows"]
 
@@ -54,6 +55,14 @@ fn redirect_output() {
     }
 }
 
+/// The log only covers the current run: each daemon starts it empty.
+fn clear_log() {
+    let path = std::env::temp_dir().join("claudetalk-dictation.log");
+    if let Ok(f) = std::fs::OpenOptions::new().write(true).open(path) {
+        let _ = f.set_len(0);
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--render-test") {
@@ -71,6 +80,7 @@ fn main() {
         println!("[info] another dictation instance is already running; this one exits");
         return;
     }
+    clear_log();
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     // Vulkan's D3D12 translation layer (Dozen) adds nothing next to the real
     // drivers and pulls in the whole D3D12 stack (~150 MB): skip it.
