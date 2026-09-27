@@ -90,18 +90,55 @@ impl Mic {
 
 /// Windowed-sinc resampler (Blackman window, 32 taps per side), streaming.
 /// Low-passes at the lower of the two Nyquist frequencies.
+///
+/// The kernel is precomputed for PHASES fractional positions, so each
+/// output sample is a dot product. Computing it per sample cost a sine and
+/// two cosines per tap (193 taps at 48 kHz): ~9 million trig calls a
+/// second, a quarter of a CPU core whenever the mic was open (wake phrase).
 pub struct Resampler {
     ratio: f64, // input samples per output sample
     pos: f64,   // position of the next output sample in `hist` coordinates
     hist: Vec<f32>,
-    cutoff: f64,
+    /// Taps on each side of the center (K), rows of 2K+1 weights.
+    k: isize,
+    /// PHASES+1 normalized rows: row p is the kernel centered p/PHASES of a
+    /// sample after an input sample.
+    table: Vec<f32>,
 }
 
 const TAPS: isize = 32;
+const PHASES: usize = 256;
 
 impl Resampler {
     pub fn new(from: f64, to: f64) -> Self {
-        Self { ratio: from / to, pos: TAPS as f64, hist: vec![0.0; TAPS as usize], cutoff: (to / from).min(1.0) * 0.94 }
+        let ratio = from / to;
+        let cutoff = (to / from).min(1.0) * 0.94;
+        let half = TAPS as f64 * ratio.max(1.0);
+        let k = half.ceil() as isize + 1;
+        let width = (2 * k + 1) as usize;
+        let mut table = vec![0.0f32; (PHASES + 1) * width];
+        for p in 0..=PHASES {
+            let frac = p as f64 / PHASES as f64;
+            let row = &mut table[p * width..(p + 1) * width];
+            let mut norm = 0.0f64;
+            let mut w = vec![0.0f64; width];
+            for j in -k..=k {
+                let x = j as f64 - frac;
+                if x.abs() > half {
+                    continue;
+                }
+                let arg = x * cutoff;
+                let sinc = if arg.abs() < 1e-9 { 1.0 } else { (std::f64::consts::PI * arg).sin() / (std::f64::consts::PI * arg) };
+                let win = 0.42 + 0.5 * (std::f64::consts::PI * x / half).cos() + 0.08 * (2.0 * std::f64::consts::PI * x / half).cos();
+                w[(j + k) as usize] = sinc * win;
+                norm += sinc * win;
+            }
+            for (dst, v) in row.iter_mut().zip(w) {
+                *dst = if norm.abs() > 1e-9 { (v / norm) as f32 } else { 0.0 };
+            }
+        }
+        // start with a window's worth of silence behind the first sample
+        Self { ratio, pos: k as f64, hist: vec![0.0; k as usize], k, table }
     }
 
     pub fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
@@ -110,26 +147,24 @@ impl Resampler {
             return;
         }
         self.hist.extend_from_slice(input);
-        let half = TAPS as f64 * self.ratio.max(1.0);
-        while self.pos + half < self.hist.len() as f64 {
-            let center = self.pos;
-            let lo = (center - half).ceil() as isize;
-            let hi = (center + half).floor() as isize;
-            let (mut acc, mut norm) = (0.0f64, 0.0f64);
-            for i in lo.max(0)..=hi.min(self.hist.len() as isize - 1) {
-                let x = i as f64 - center;
-                let arg = x * self.cutoff;
-                let sinc = if arg.abs() < 1e-9 { 1.0 } else { (std::f64::consts::PI * arg).sin() / (std::f64::consts::PI * arg) };
-                let w = 0.42 + 0.5 * (std::f64::consts::PI * x / half).cos() + 0.08 * (2.0 * std::f64::consts::PI * x / half).cos();
-                let k = sinc * w;
-                acc += self.hist[i as usize] as f64 * k;
-                norm += k;
-            }
-            out.push(if norm.abs() > 1e-9 { (acc / norm) as f32 } else { 0.0 });
+        let k = self.k;
+        let width = (2 * k + 1) as usize;
+        while self.pos + (k as f64) < self.hist.len() as f64 {
+            let base = self.pos.floor();
+            let p = ((self.pos - base) * PHASES as f64).round() as usize;
+            let row = &self.table[p * width..(p + 1) * width];
+            let first = base as isize - k;
+            let acc: f32 = if first >= 0 {
+                let src = &self.hist[first as usize..first as usize + width];
+                src.iter().zip(row).map(|(a, b)| a * b).sum()
+            } else {
+                (0..width).filter(|&j| first + j as isize >= 0).map(|j| self.hist[(first + j as isize) as usize] * row[j]).sum()
+            };
+            out.push(acc);
             self.pos += self.ratio;
         }
         // keep enough history for the next window
-        let keep_from = (self.pos - half).floor().max(0.0) as usize;
+        let keep_from = (self.pos - k as f64).floor().max(0.0) as usize;
         if keep_from > 0 {
             self.hist.drain(..keep_from);
             self.pos -= keep_from as f64;
@@ -306,6 +341,101 @@ mod tests {
         let expect: Vec<f32> = (0..out.len()).map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 16_000.0).sin()).collect();
         // skip the start-up window; compare amplitude, not phase
         assert!((rms(&out[400..]) - rms(&expect[400..])).abs() < 0.02);
+    }
+
+    // the per-sample kernel this replaced, to check the table against it
+    /// Windowed-sinc resampler (Blackman window, 32 taps per side), streaming.
+    /// Low-passes at the lower of the two Nyquist frequencies.
+    struct Reference {
+        ratio: f64, // input samples per output sample
+        pos: f64,   // position of the next output sample in `hist` coordinates
+        hist: Vec<f32>,
+        cutoff: f64,
+    }
+
+
+    impl Reference {
+        fn new(from: f64, to: f64) -> Self {
+            Self { ratio: from / to, pos: TAPS as f64, hist: vec![0.0; TAPS as usize], cutoff: (to / from).min(1.0) * 0.94 }
+        }
+
+        fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
+            if (self.ratio - 1.0).abs() < 1e-9 {
+                out.extend_from_slice(input);
+                return;
+            }
+            self.hist.extend_from_slice(input);
+            let half = TAPS as f64 * self.ratio.max(1.0);
+            while self.pos + half < self.hist.len() as f64 {
+                let center = self.pos;
+                let lo = (center - half).ceil() as isize;
+                let hi = (center + half).floor() as isize;
+                let (mut acc, mut norm) = (0.0f64, 0.0f64);
+                for i in lo.max(0)..=hi.min(self.hist.len() as isize - 1) {
+                    let x = i as f64 - center;
+                    let arg = x * self.cutoff;
+                    let sinc = if arg.abs() < 1e-9 { 1.0 } else { (std::f64::consts::PI * arg).sin() / (std::f64::consts::PI * arg) };
+                    let w = 0.42 + 0.5 * (std::f64::consts::PI * x / half).cos() + 0.08 * (2.0 * std::f64::consts::PI * x / half).cos();
+                    let k = sinc * w;
+                    acc += self.hist[i as usize] as f64 * k;
+                    norm += k;
+                }
+                out.push(if norm.abs() > 1e-9 { (acc / norm) as f32 } else { 0.0 });
+                self.pos += self.ratio;
+            }
+            // keep enough history for the next window
+            let keep_from = (self.pos - half).floor().max(0.0) as usize;
+            if keep_from > 0 {
+                self.hist.drain(..keep_from);
+                self.pos -= keep_from as f64;
+            }
+        }
+    }
+
+    #[test]
+    fn table_matches_the_per_sample_kernel() {
+        for rate in [48_000.0, 44_100.0, 32_000.0] {
+            let input: Vec<f32> = (0..(rate as usize / 2))
+                .map(|i| {
+                    let t = i as f32 / rate as f32;
+                    0.5 * (2.0 * std::f32::consts::PI * 300.0 * t).sin() + 0.3 * (2.0 * std::f32::consts::PI * 2_900.0 * t).sin()
+                })
+                .collect();
+            let (mut a, mut b) = (Resampler::new(rate, 16_000.0), Reference::new(rate, 16_000.0));
+            let (mut oa, mut ob) = (Vec::new(), Vec::new());
+            for chunk in input.chunks(480) {
+                a.process(chunk, &mut oa);
+                b.process(chunk, &mut ob);
+            }
+            let n = oa.len().min(ob.len());
+            assert!((oa.len() as i64 - ob.len() as i64).abs() <= 2, "{rate}: {} vs {}", oa.len(), ob.len());
+            // after the start-up window both follow the same curve
+            let worst = (400..n - 10).map(|i| (oa[i] - ob[i]).abs()).fold(0.0f32, f32::max);
+            assert!(worst < 0.01, "{rate}: max diff {worst}");
+        }
+    }
+
+    #[test]
+    fn resampling_is_cheap() {
+        let input = vec![0.1f32; 48_000 * 5];
+        let mut r = Resampler::new(48_000.0, 16_000.0);
+        let mut out = Vec::new();
+        let t0 = std::time::Instant::now();
+        for chunk in input.chunks(480) {
+            r.process(chunk, &mut out);
+        }
+        let per_second = t0.elapsed().as_secs_f64() / 5.0;
+        let mut reference = Reference::new(48_000.0, 16_000.0);
+        let mut out2 = Vec::new();
+        let t1 = std::time::Instant::now();
+        for chunk in input.chunks(480) {
+            reference.process(chunk, &mut out2);
+        }
+        let before = t1.elapsed().as_secs_f64() / 5.0;
+        eprintln!("resampler: {:.2} ms per second of audio (per-sample kernel: {:.2} ms)", per_second * 1000.0, before * 1000.0);
+        // a debug build is ~20x slower than release; this still catches trig
+        // creeping back into the inner loop
+        assert!(per_second < 0.25, "{:.3} s per second of audio", per_second);
     }
 
     #[test]
