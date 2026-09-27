@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "claudetalk"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ct-core",
  "native-tls",
@@ -240,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "claudetalk-dictation"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ab_glyph",
  "cpal 0.18.2",
@@ -407,13 +407,14 @@ dependencies = [
 
 [[package]]
 name = "ct-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "fancy-regex",
  "regex",
  "serde",
  "serde_json",
  "unicode-normalization",
+ "ureq",
  "windows-sys 0.61.2",
 ]
 

@@ -11,3 +11,4 @@ regex.workspace = true
 fancy-regex.workspace = true
 unicode-normalization.workspace = true
 windows-sys.workspace = true
+ureq.workspace = true

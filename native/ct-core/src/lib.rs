@@ -3,6 +3,7 @@
 //! the transcript rules the Stop hook uses.
 
 pub mod fsutil;
+pub mod http;
 pub mod lock;
 pub mod log;
 pub mod paths;

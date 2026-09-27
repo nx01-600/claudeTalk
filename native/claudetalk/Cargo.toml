@@ -13,6 +13,6 @@ unicode-normalization.workspace = true
 windows-sys.workspace = true
 tungstenite = { version = "0.30", features = ["native-tls"] }
 native-tls = "0.2"
-ureq = { version = "3", default-features = false, features = ["native-tls"] }
+ureq.workspace = true
 sha2 = "0.11"
 rodio = { version = "0.22", default-features = false, features = ["playback", "mp3"] }

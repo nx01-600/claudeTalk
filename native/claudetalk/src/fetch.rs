@@ -79,13 +79,7 @@ pub fn download() -> Result<PathBuf, String> {
 
 fn fetch(url: &str, part: &std::path::Path) -> Result<(), String> {
     let have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_connect(Some(Duration::from_secs(20)))
-        .timeout_recv_body(Some(Duration::from_secs(60)))
-        .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
-        .build()
-        .into();
-    let mut req = agent.get(url).header("User-Agent", "claudeTalk");
+    let mut req = ct_core::http::agent().get(url).header("User-Agent", "claudeTalk");
     if have > 0 {
         req = req.header("Range", &format!("bytes={have}-"));
     }

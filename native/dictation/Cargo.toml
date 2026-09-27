@@ -23,7 +23,7 @@ rodio = { version = "0.22", default-features = false, features = ["playback"] }
 tiny-skia = "0.12"
 ab_glyph = "0.2"
 unicode-general-category = "1"
-ureq = { version = "3", default-features = false, features = ["native-tls"] }
+ureq.workspace = true
 
 [dependencies.windows-sys]
 version = "0.61"
