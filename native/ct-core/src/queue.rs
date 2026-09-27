@@ -128,6 +128,7 @@ pub fn spawn_self(args: &[&str]) {
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     let Ok(exe) = std::env::current_exe() else { return };
+    crate::procs::keep_std_handles();
     let mut cmd = std::process::Command::new(exe);
     cmd.args(args)
         .stdin(std::process::Stdio::null())

@@ -31,6 +31,7 @@ pub fn running() -> bool {
 
 fn spawn(exe: &Path, args: &[&str], flags: u32) -> bool {
     use std::os::windows::process::CommandExt;
+    ct_core::procs::keep_std_handles();
     let mut cmd = std::process::Command::new(exe);
     cmd.args(args)
         .current_dir(plugin_root())

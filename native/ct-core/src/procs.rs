@@ -151,3 +151,22 @@ mod tests {
         assert!(s.0.contains_key(&std::process::id()));
     }
 }
+
+/// Stops the children this process spawns from inheriting its stdin, stdout
+/// and stderr. Rust spawns with `bInheritHandles = TRUE`, so a detached
+/// daemon started from a hook would keep Claude Code's pipe open, and Claude
+/// Code waits for EOF on it until the hook times out. Only inheritance
+/// changes: this process still reads and writes its own streams.
+pub fn keep_std_handles() {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+    for h in [
+        std::io::stdin().as_raw_handle(),
+        std::io::stdout().as_raw_handle(),
+        std::io::stderr().as_raw_handle(),
+    ] {
+        if !h.is_null() {
+            unsafe { SetHandleInformation(h as _, HANDLE_FLAG_INHERIT, 0) };
+        }
+    }
+}
