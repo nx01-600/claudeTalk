@@ -21,17 +21,6 @@
   <img src="https://img.shields.io/badge/Claude%20Code-plugin-D97757?style=flat-square&logo=claude&logoColor=white" alt="Claude Code plugin">
 </p>
 
-<p align="center">
-  <img src="assets/screenshots/pill-record.png" height="80" alt="Recording pill">
-  &nbsp;
-  <img src="assets/screenshots/pill-done-ok.png" height="80" alt="Sent confirmation">
-</p>
-<p align="center">
-  <img src="assets/screenshots/panel-voice.png" width="360" alt="Claude's voice settings">
-  &nbsp;
-  <img src="assets/screenshots/panel-dictation.png" width="360" alt="Dictation settings">
-</p>
-
 ---
 
 Voice for **Claude Code** on Windows, in both directions:
