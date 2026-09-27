@@ -212,7 +212,8 @@ pub fn session_notice() -> String {
         "claudeTalk was upgraded to its native version, and files from older versions are still on this computer \
          (the old Python dictation environment, older plugin copies in Claude Code's cache: often several GB). \
          At a natural moment, tell the user once and offer to clean up. To see what would go: \"{exe}\" cleanup. \
-         To remove it, after the user agrees: \"{exe}\" cleanup --yes. It only removes claudeTalk's own leftovers."
+         To remove it, only after the user agrees: \"{exe}\" cleanup --yes. Never remove them without asking, \
+         even if you installed or upgraded claudeTalk yourself. It only removes claudeTalk's own leftovers."
     )
 }
 

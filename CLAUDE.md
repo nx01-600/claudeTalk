@@ -77,6 +77,11 @@ but other tools may (the `audio-to-text` skill needs ffmpeg). Ask first.
   attribution lines.
 - Versions: patch for small changes, minor for bigger ones. 1.0 only when the
   user says so.
+- Languages: every text the dictation app shows goes through
+  `ui::panel::tr` and must be listed in `ct_core::lang::UI_TEXT` and
+  translated in the Spanish pack. See `docs/LANGUAGES.md`.
+- Before a release, test a fresh install (empty profile) and an upgrade from
+  an older version, and read `%TEMP%\claudetalk-dictation.log` for panics.
 - For every feature, update the README's feature table, the description in
   `.claude-plugin/plugin.json` and `marketplace.json`, and the GitHub repo
   description.
