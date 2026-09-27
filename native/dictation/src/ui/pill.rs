@@ -153,6 +153,12 @@ impl Pill {
         (x as f32 + (INSET + WIDTH / 2.0) * s, y as f32 + (rest_top + HEIGHT / 2.0) * s, s)
     }
 
+    /// The window origin that puts the resting pill's center at (cx, cy).
+    pub fn origin_for_center(cx: f32, cy: f32, top: bool, s: f32) -> (i32, i32) {
+        let rest_top = INSET + if top { SLIDE_PX } else { 0.0 };
+        ((cx - (INSET + WIDTH / 2.0) * s).round() as i32, (cy - (rest_top + HEIGHT / 2.0) * s).round() as i32)
+    }
+
     pub fn pill_top(&self, top: bool) -> f32 {
         INSET + (if !top { self.slide } else { 1.0 - self.slide }) * SLIDE_PX
     }

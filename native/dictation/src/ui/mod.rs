@@ -18,7 +18,7 @@ use editor::Editor;
 use glass::{Material, INSET};
 use panel::{Action, Kind, Panel, PANEL_W};
 use pill::{Click, Pill};
-use talk::TalkPill;
+use talk::{Act, TalkPill};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -36,7 +36,6 @@ const ID_VOICE: isize = 3;
 const ID_EDITOR: isize = 4;
 const ID_TALK: isize = 5;
 
-const T_FRAME: usize = 1;
 const T_TRACK: usize = 2;
 const T_CONFIG: usize = 3;
 const T_WATCHDOG: usize = 4;
@@ -44,6 +43,9 @@ const T_CAPTURE: usize = 5;
 const T_LIVE: usize = 6;
 const T_BADGE: usize = 7;
 const T_SPEAK: usize = 8;
+/// Live glass: one window's backdrop is re-captured and re-blurred per tick,
+/// in turns, so no frame pays for two blurs.
+const LIVE_MS: u32 = 45;
 
 struct App {
     shared: Arc<Shared>,
@@ -57,6 +59,16 @@ struct App {
     chord: Chord,
     watchdog: Option<Watchdog>,
     badge_token: u64,
+    /// Round robin over the windows whose glass T_LIVE refreshes.
+    live_turn: usize,
+    /// The pill's spot from the last drag, kept while the pill or the
+    /// capsule is on screen (see saved_drag).
+    anchor: Option<(i32, i32)>,
+    /// Frames the talking capsule has been gliding (its glass is refreshed
+    /// every few of them, and once when it stops).
+    glide: u32,
+    /// Polls in a row with phrases queued and no speaker (signals::heal_speaker).
+    stranded: u32,
     frame_on: bool,
     tracking_mouse: [bool; 6],
     cursor: *const u16,
@@ -92,10 +104,14 @@ impl App {
         self.cfg_bool("show_in_capture")
     }
 
+    /// Where the pill goes when it appears (window origin): the remembered
+    /// spot with "Remember dragged spot" on; otherwise where the pill or the
+    /// talking capsule was last dragged, for as long as one of them stays
+    /// on screen.
     fn saved_drag(&self) -> Option<(i32, i32)> {
         let c = self.shared.config.lock().unwrap();
         if !c.bool("remember_drag") {
-            return None;
+            return self.anchor;
         }
         let a = c.get("drag_pos").as_array()?;
         Some((a.first()?.as_f64()? as i32, a.get(1)?.as_f64()? as i32))
@@ -108,16 +124,21 @@ impl App {
     fn start_frames(&mut self) {
         if !self.frame_on {
             self.frame_on = true;
-            unsafe { SetTimer(self.main, T_FRAME, 16, None) };
+            pacer::run(true);
         }
         let live = !self.capturable() && (self.pill.win.visible || self.panel.win.visible || self.talk.win.visible);
         unsafe {
             if live {
-                SetTimer(self.main, T_LIVE, 40, None);
+                SetTimer(self.main, T_LIVE, LIVE_MS, None);
             } else {
                 KillTimer(self.main, T_LIVE);
             }
         }
+    }
+
+    fn stop_frames(&mut self) {
+        self.frame_on = false;
+        pacer::run(false);
     }
 
     fn redraw_all(&mut self) {
@@ -149,15 +170,26 @@ impl App {
     /// One animation frame. The pill repaints every frame while it's up
     /// (its bars move); the panels only while something in them moves.
     fn frame(&mut self) {
+        let _t = perf::Timer::new("frame");
         let mut pill_on = false;
         if self.pill.win.visible || self.pill.win.opacity > 0.0 {
             pill_on = self.pill.tick() && self.pill.win.visible;
         }
         if self.talk.win.visible {
             self.aim_talk();
-            let (on, moved) = self.talk.tick();
-            if moved && !self.capturable() {
+            let level = ct_core::voice_link::get().map(|l| l.level()).unwrap_or(0.0);
+            let (on, moved) = self.talk.tick(level);
+            // While it glides the glass follows every 4th frame (a blur is
+            // several ms), and once more where it lands.
+            if moved {
+                self.glide += 1;
+            }
+            let landed = !moved && self.glide > 0;
+            if !self.capturable() && ((moved && self.glide % 4 == 0) || landed) {
                 self.talk.refresh_background(material(&self.shared), false);
+            }
+            if landed {
+                self.glide = 0;
             }
             pill_on |= on;
         }
@@ -177,8 +209,10 @@ impl App {
         }
         self.redraw(pill_on, panels_moving);
         if !pill_on && !panels_moving {
-            self.frame_on = false;
-            unsafe { KillTimer(self.main, T_FRAME) };
+            self.stop_frames();
+        }
+        if !self.pill.win.visible && !self.talk.win.visible {
+            self.anchor = None; // both gone: the next ones start from home
         }
         if !self.pill.win.visible && !self.panel.win.visible && !self.voice.win.visible && !self.talk.win.visible {
             unsafe { KillTimer(self.main, T_LIVE) };
@@ -188,6 +222,7 @@ impl App {
     /// Re-captures what's behind the visible windows; repaints the ones
     /// whose backdrop changed.
     fn refresh_backgrounds(&mut self) {
+        let _t = perf::Timer::new("glass");
         let m = material(&self.shared);
         let cap = self.capturable();
         let mut pill = self.pill.win.visible && self.pill.refresh_background(m, cap);
@@ -201,6 +236,30 @@ impl App {
         }
         if (pill && !self.frame_on) || panels {
             self.redraw(pill, panels);
+        }
+    }
+
+    /// T_LIVE: re-captures the backdrop of the next visible window in turn
+    /// and repaints it if what's behind changed.
+    fn refresh_live_one(&mut self) {
+        let _t = perf::Timer::new("glass1");
+        let m = material(&self.shared);
+        let visible = [self.pill.win.visible, self.talk.win.visible, self.panel.win.visible, self.voice.win.visible];
+        let Some(k) = (1..=4).map(|i| (self.live_turn + i) % 4).find(|&k| visible[k]) else { return };
+        self.live_turn = k;
+        match k {
+            0 | 1 => {
+                let changed = if k == 0 { self.pill.refresh_background(m, false) } else { self.talk.refresh_background(m, false) };
+                if changed && !self.frame_on {
+                    self.redraw(true, false);
+                }
+            }
+            _ => {
+                let changed = if k == 2 { self.panel.refresh_background(m, false) } else { self.voice.refresh_background(m, false) };
+                if changed {
+                    self.redraw(false, true);
+                }
+            }
         }
     }
 
@@ -246,13 +305,30 @@ impl App {
         let (cx, cy, s) = self.pill.center(top, self.saved_drag());
         let beside = self.pill.win.visible && !self.pill.closing;
         let cx = if beside { cx - (pill::WIDTH / 2.0 + talk::GAP + talk::WIDTH / 2.0) * s } else { cx };
-        self.talk.aim(TalkPill::origin_for_center(cx, cy, s), s);
+        self.talk.aim(cx, cy, s);
     }
 
     /// Polled a few times a second: shows the pill while Claude's voice
     /// plays (or is about to), hides it once Claude has been quiet a moment.
     fn poll_talk(&mut self) {
+        self.test_trigger();
+        self.stranded = crate::signals::heal_speaker(self.stranded);
         let talking = self.cfg_bool("speaking_indicator") && crate::wake::claude_is_talking();
+        if talking || self.talk.win.visible {
+            // The phrase playing is still the first file in the queue; the
+            // rest wait. Answers from another session get their own color.
+            let pending = ct_core::queue::pending();
+            self.talk.queued = pending.len().saturating_sub(1);
+            let playing = std::fs::read_to_string(ct_core::paths::player_session_file()).unwrap_or_default();
+            let playing = playing.lines().next().unwrap_or("").trim().to_string();
+            self.talk.other_session = pending
+                .iter()
+                .skip(1)
+                .filter_map(|p| ct_core::queue::read_item(p))
+                .any(|it| it.session != playing);
+            self.talk.paused = ct_core::voice_link::get().is_some_and(|l| l.paused());
+            self.talk.volume = self.shared.config.lock().unwrap().f64("tts_volume", 100.0).round() as i32;
+        }
         if self.talk.heard(talking) {
             let cap = self.capturable();
             self.aim_talk();
@@ -272,10 +348,110 @@ impl App {
         }
     }
 
-    /// The red X: Claude stops talking now; talk mode and dictation stay on.
-    fn silence_claude(&mut self) {
-        ct_core::queue::stop(None);
-        self.talk.silenced();
+    /// Test instances only (CLAUDETALK_NS set): `Local\claudetalk_test_record`
+    /// plus the namespace shows or hides the dictation pill as if a recording
+    /// started or ended, without the mic, the keyboard or pasting anything,
+    /// so live layout and timing tests can't disturb the user's windows.
+    fn test_trigger(&mut self) {
+        thread_local!(static TEST: bool = std::env::var("CLAUDETALK_NS").is_ok_and(|v| !v.is_empty()));
+        if !TEST.with(|t| *t) {
+            return;
+        }
+        use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+        thread_local!(static EV: HANDLE = unsafe { CreateEventW(std::ptr::null(), 0, 0, ct_core::lock::named(r"Local\claudetalk_test_record").as_ptr()) });
+        if EV.with(|h| unsafe { WaitForSingleObject(*h, 0) }) == WAIT_OBJECT_0 {
+            if self.pill.win.visible && !self.pill.closing {
+                self.event(UiEvent::Stopped);
+            } else {
+                self.event(UiEvent::RecordingStarted);
+            }
+        }
+    }
+
+    /// The capsule's buttons and volume slider.
+    fn talk_actions(&mut self, acts: Vec<Act>) {
+        for a in acts {
+            match a {
+                // Only the phrase playing goes: the answers queued behind it
+                // (from any session) still play, each with its own voice.
+                // Talk mode and dictation stay on.
+                Act::Stop => {
+                    if let Some(link) = ct_core::voice_link::get() {
+                        link.set_paused(false);
+                    }
+                    self.talk.paused = false;
+                    ct_core::queue::signal_cut();
+                    if self.talk.queued == 0 {
+                        self.talk.silenced();
+                    }
+                }
+                Act::TogglePause => {
+                    if let Some(link) = ct_core::voice_link::get() {
+                        link.set_paused(!link.paused());
+                        self.talk.paused = link.paused();
+                    }
+                }
+                // Only the phrase playing goes; the next one starts (playing).
+                Act::Skip => {
+                    if let Some(link) = ct_core::voice_link::get() {
+                        link.set_paused(false);
+                    }
+                    self.talk.paused = false;
+                    ct_core::queue::signal_cut();
+                }
+                Act::Volume(v) => {
+                    if let Some(link) = ct_core::voice_link::get() {
+                        link.push_volume(v);
+                    }
+                }
+                Act::VolumeDone(v) => {
+                    if let Some(link) = ct_core::voice_link::get() {
+                        link.push_volume(v);
+                    }
+                    self.shared.config.lock().unwrap().set("tts_volume", json!(v));
+                    self.after_change("tts_volume");
+                }
+                // The capsule and the pill move as one group: dragging the
+                // capsule drags the pill beside it, and sets where the pill
+                // (and so the capsule) appears next.
+                Act::Dragged(cx, cy) => {
+                    let s = self.talk.scale;
+                    let top = self.top();
+                    if self.pill.win.visible && !self.pill.closing {
+                        let px = cx + (pill::WIDTH / 2.0 + talk::GAP + talk::WIDTH / 2.0) * s;
+                        let (x, y) = Pill::origin_for_center(px, cy, top, s);
+                        self.pill.win.x = x;
+                        self.pill.win.y = y;
+                    }
+                    self.redraw(true, false);
+                }
+                Act::DragEnd => {
+                    let s = self.talk.scale;
+                    let top = self.top();
+                    let (x, y) = if self.pill.win.visible && !self.pill.closing {
+                        (self.pill.win.x, self.pill.win.y)
+                    } else {
+                        let (cx, cy) = (
+                            self.talk.win.x as f32 + (INSET + talk::WIDTH / 2.0) * s,
+                            self.talk.win.y as f32 + self.talk.cap_center_y() * s,
+                        );
+                        Pill::origin_for_center(cx, cy, top, s)
+                    };
+                    self.anchor = Some((x, y));
+                    if self.cfg_bool("remember_drag") {
+                        self.shared.config.lock().unwrap().set("drag_pos", json!([x, y]));
+                    }
+                    self.refresh_backgrounds();
+                }
+                Act::Capture(on) => unsafe {
+                    if on {
+                        SetCapture(self.talk.win.hwnd);
+                    } else {
+                        ReleaseCapture();
+                    }
+                },
+            }
+        }
         self.start_frames();
     }
 
@@ -494,17 +670,25 @@ impl App {
         match id {
             ID_TALK => match msg {
                 WM_MOUSEMOVE => {
-                    let on_x = self.talk.mouse_move(sx, sy);
-                    self.cursor = if on_x { IDC_HAND } else { IDC_ARROW };
+                    let (hand, acts) = self.talk.mouse_move(sx, sy);
+                    self.cursor = if hand { IDC_HAND } else { IDC_SIZEALL };
+                    if self.talk.needs_glass() {
+                        let cap = self.capturable();
+                        self.talk.refresh_background(material(&self.shared), cap);
+                    }
+                    self.talk_actions(acts);
                 }
                 WM_MOUSELEAVE_ => {
                     self.tracking_mouse[ID_TALK as usize] = false;
                     self.talk.mouse_leave();
                 }
                 WM_LBUTTONDOWN => {
-                    if self.talk.mouse_down(sx, sy) {
-                        self.silence_claude();
-                    }
+                    let acts = self.talk.mouse_down(sx, sy);
+                    self.talk_actions(acts);
+                }
+                WM_LBUTTONUP => {
+                    let acts = self.talk.mouse_up();
+                    self.talk_actions(acts);
                 }
                 _ => {}
             },
@@ -537,8 +721,9 @@ impl App {
                 WM_LBUTTONUP => {
                     unsafe { ReleaseCapture() };
                     if self.pill.mouse_up() {
+                        let (x, y) = (self.pill.win.x, self.pill.win.y);
+                        self.anchor = Some((x, y));
                         if self.cfg_bool("remember_drag") {
-                            let (x, y) = (self.pill.win.x, self.pill.win.y);
                             self.shared.config.lock().unwrap().set("drag_pos", json!([x, y]));
                         }
                         // the live glass follows by itself; the screen-share
@@ -584,11 +769,11 @@ impl App {
 
     fn timer(&mut self, id: usize) {
         match id {
-            T_FRAME => self.frame(),
+
             T_SPEAK => self.poll_talk(),
             T_LIVE => {
                 if !self.capturable() {
-                    self.refresh_backgrounds();
+                    self.refresh_live_one();
                 }
             }
             T_TRACK => self.shared.track_claude_window(),
@@ -632,6 +817,112 @@ impl App {
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+/// Animation frames at an even 60 fps. WM_TIMER can't do it: its messages
+/// have the lowest priority, get coalesced and follow Windows' ~15.6 ms
+/// tick, so a 16 ms timer gave 40 fps with uneven gaps. A small thread
+/// sleeps to each frame's due time (1 ms resolution while it runs) and posts
+/// one message; it never queues a second one before the UI took the first,
+/// so a slow frame drops the next instead of piling them up.
+mod pacer {
+    use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+    use std::sync::{Condvar, Mutex};
+    use std::time::{Duration, Instant};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
+
+    pub const MSG_FRAME: u32 = WM_APP + 7;
+    const PERIOD: Duration = Duration::from_micros(16_667);
+
+    static RUN: Mutex<bool> = Mutex::new(false);
+    static WAKE: Condvar = Condvar::new();
+    static POSTED: AtomicBool = AtomicBool::new(false);
+    static HWND: AtomicIsize = AtomicIsize::new(0);
+
+    pub fn start(hwnd: windows_sys::Win32::Foundation::HWND) {
+        HWND.store(hwnd as isize, Ordering::Relaxed);
+        std::thread::spawn(|| loop {
+            {
+                let mut on = RUN.lock().unwrap();
+                while !*on {
+                    on = WAKE.wait(on).unwrap();
+                }
+            }
+            unsafe { windows_sys::Win32::Media::timeBeginPeriod(1) };
+            let mut next = Instant::now();
+            while *RUN.lock().unwrap() {
+                next += PERIOD;
+                let now = Instant::now();
+                if next > now {
+                    std::thread::sleep(next - now);
+                } else {
+                    next = now; // fell behind: don't try to catch up
+                }
+                if !POSTED.swap(true, Ordering::AcqRel) {
+                    unsafe { PostMessageW(HWND.load(Ordering::Relaxed) as _, MSG_FRAME, 0, 0) };
+                }
+            }
+            unsafe { windows_sys::Win32::Media::timeEndPeriod(1) };
+        });
+    }
+
+    pub fn run(on: bool) {
+        *RUN.lock().unwrap() = on;
+        if on {
+            WAKE.notify_one();
+        }
+    }
+
+    /// The UI picked up the frame message: the next one may be posted.
+    pub fn taken() {
+        POSTED.store(false, Ordering::Release);
+    }
+}
+
+/// `CLAUDETALK_PERF=1`: every 2 s the log gets how long frames and glass
+/// refreshes took (count, average, worst), to find what makes animations
+/// stutter. Off by default: costs one env check per process.
+mod perf {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::time::{Duration, Instant};
+
+    thread_local! {
+        static ON: bool = std::env::var_os("CLAUDETALK_PERF").is_some();
+        static STATS: RefCell<(Instant, BTreeMap<&'static str, (u32, Duration, Duration)>)> = RefCell::new((Instant::now(), BTreeMap::new()));
+    }
+
+    pub struct Timer(Option<(&'static str, Instant)>);
+
+    impl Timer {
+        pub fn new(name: &'static str) -> Self {
+            Timer(ON.with(|on| *on).then(|| (name, Instant::now())))
+        }
+    }
+
+    impl Drop for Timer {
+        fn drop(&mut self) {
+            let Some((name, t0)) = self.0 else { return };
+            let took = t0.elapsed();
+            STATS.with(|st| {
+                let mut st = st.borrow_mut();
+                let e = st.1.entry(name).or_insert((0, Duration::ZERO, Duration::ZERO));
+                e.0 += 1;
+                e.1 += took;
+                e.2 = e.2.max(took);
+                if st.0.elapsed() >= Duration::from_secs(2) {
+                    let line: Vec<String> = st
+                        .1
+                        .iter()
+                        .map(|(k, (n, sum, max))| format!("{k} {n}x avg {:.1} ms max {:.1} ms", sum.as_secs_f64() * 1000.0 / *n as f64, max.as_secs_f64() * 1000.0))
+                        .collect();
+                    println!("[perf] {}", line.join(" | "));
+                    st.1.clear();
+                    st.0 = Instant::now();
+                }
+            });
         }
     }
 }
@@ -684,6 +975,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
             WM_TIMER => {
                 with_app(|a| a.timer(wp));
+                return 0;
+            }
+            pacer::MSG_FRAME => {
+                pacer::taken();
+                with_app(|a| {
+                    if a.frame_on {
+                        a.frame();
+                    }
+                });
                 return 0;
             }
             MSG_EVENT => {
@@ -744,6 +1044,7 @@ pub fn run(shared: Arc<Shared>, auto: bool) {
             std::ptr::null(),
         );
         SetWindowLongPtrW(main, GWLP_USERDATA, ID_MAIN);
+        pacer::start(main);
         shared.set_ui(main);
         if !hotkey::register(main) {
             println!("[hotkey] raw input registration failed");
@@ -764,6 +1065,10 @@ pub fn run(shared: Arc<Shared>, auto: bool) {
             chord: Chord::new(keys),
             watchdog: auto.then(Watchdog::new),
             badge_token: 0,
+            live_turn: 0,
+            anchor: None,
+            glide: 0,
+            stranded: 0,
             frame_on: false,
             tracking_mouse: [false; 6],
             cursor: IDC_ARROW,
@@ -833,8 +1138,8 @@ pub fn render_test(dir: &std::path::Path, cfg: &crate::config::Config, scale: f3
     let mut t = TalkPill::new(Layered::create(&class, ID_TALK));
     t.scale = scale;
     let (w, h) = t.phys_size();
-    for (name, hover) in [("talk", false), ("talk-hover", true)] {
-        t.test_backdrop(&backdrop(w, h), m, hover);
+    for (name, paused, queued, pop, other) in [("talk", false, 0, false, false), ("talk-queue-paused", true, 2, false, false), ("talk-volume", false, 3, true, true)] {
+        t.test_state(&backdrop(w, h), m, paused, queued, pop, other);
         let _ = t.render(m).save_png(dir.join(format!("{name}.png")));
     }
     for (kind, name) in [(Kind::Dictation, "panel-dictation"), (Kind::Voice, "panel-voice")] {

@@ -1,7 +1,6 @@
 //! Starting the dictation daemon (voice-daemon-ensure.ps1 in v0.5). The
 //! daemon is downloaded on first use (see fetch.rs).
 
-use ct_core::lock::wide;
 use std::path::{Path, PathBuf};
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Threading::OpenMutexW;
@@ -21,7 +20,7 @@ pub fn plugin_root() -> PathBuf {
 
 /// The daemon holds this mutex for its whole life.
 pub fn running() -> bool {
-    let h = unsafe { OpenMutexW(SYNCHRONIZE, 0, wide("Local\\claudeTalk-dictation").as_ptr()) };
+    let h = unsafe { OpenMutexW(SYNCHRONIZE, 0, ct_core::lock::named("Local\\claudeTalk-dictation").as_ptr()) };
     if h.is_null() {
         return false;
     }

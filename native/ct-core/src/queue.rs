@@ -8,7 +8,7 @@
 //! event, which the speaker checks while it plays.
 
 use crate::fsutil::read_json;
-use crate::lock::{wide, NamedMutex};
+use crate::lock::NamedMutex;
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -143,6 +143,10 @@ pub fn spawn_self(args: &[&str]) {
 /// Empties the queue and cuts what is playing. With `sid`, only that
 /// session's phrases: the other sessions keep talking.
 pub fn stop(sid: Option<&str>) {
+    // a paused phrase that gets cut must not leave the next one paused
+    if let Some(link) = crate::voice_link::get() {
+        link.set_paused(false);
+    }
     for p in pending() {
         let remove = match sid {
             None => true,
@@ -167,7 +171,7 @@ pub fn stop(sid: Option<&str>) {
 
 pub fn signal_cut() {
     unsafe {
-        let h = CreateEventW(std::ptr::null(), 0, 0, wide(CUT_EVENT).as_ptr());
+        let h = CreateEventW(std::ptr::null(), 0, 0, crate::lock::named(CUT_EVENT).as_ptr());
         if !h.is_null() {
             SetEvent(h);
             CloseHandle(h);

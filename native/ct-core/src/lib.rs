@@ -14,6 +14,7 @@ pub mod sessions;
 pub mod settings;
 pub mod speech_text;
 pub mod transcript;
+pub mod voice_link;
 
 /// First UTF-16 units of the mark the dictation daemon puts in front of every
 /// message it sends to Claude Code (U+1F399 U+FE0F and a space).

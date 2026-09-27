@@ -75,7 +75,7 @@ fn main() {
     let auto = std::env::args().any(|a| a == "--auto");
 
     // Single instance: two would both react to the same chord.
-    let _mutex = unsafe { CreateMutexW(std::ptr::null(), 0, ct_core::lock::wide("Local\\claudeTalk-dictation").as_ptr()) };
+    let _mutex = unsafe { CreateMutexW(std::ptr::null(), 0, ct_core::lock::named("Local\\claudeTalk-dictation").as_ptr()) };
     if unsafe { GetLastError() } == 183 {
         println!("[info] another dictation instance is already running; this one exits");
         return;

@@ -7,6 +7,16 @@ pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// A kernel object name (mutex, event, shared memory) as UTF-16. The
+/// `CLAUDETALK_NS` environment variable, when set, is appended: test
+/// processes then get their own objects and can't pause, cut or block the
+/// user's real speaker and daemon (the names are shared by every process in
+/// the Windows session, whatever APPDATA or TEMP say).
+pub fn named(name: &str) -> Vec<u16> {
+    let ns = std::env::var("CLAUDETALK_NS").unwrap_or_default();
+    wide(&format!("{name}{ns}"))
+}
+
 /// A named mutex. `acquire` returns a guard only if it got ownership; an
 /// abandoned mutex (its owner died) counts as owned.
 pub struct NamedMutex(HANDLE);
@@ -15,7 +25,7 @@ unsafe impl Send for NamedMutex {}
 
 impl NamedMutex {
     pub fn new(name: &str) -> Option<Self> {
-        let h = unsafe { CreateMutexW(std::ptr::null(), 0, wide(name).as_ptr()) };
+        let h = unsafe { CreateMutexW(std::ptr::null(), 0, named(name).as_ptr()) };
         if h.is_null() {
             None
         } else {

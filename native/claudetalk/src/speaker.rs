@@ -3,9 +3,9 @@
 //! for a while after the queue empties, waiting on a directory change
 //! notification, so the next phrase starts without launching anything.
 
-use ct_core::lock::{wide, NamedMutex};
+use ct_core::lock::{named, wide, NamedMutex};
 use ct_core::queue::{self, Item, CUT_EVENT, DUCKING_EVENT, SPEAKER_MUTEX, SPEAKING_EVENT};
-use ct_core::{log::log, paths};
+use ct_core::{log::log, paths, voice_link};
 use rodio::buffer::SamplesBuffer;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 use sha2::{Digest, Sha256};
@@ -32,7 +32,7 @@ unsafe impl Sync for Handle {}
 
 /// Manual-reset events shared with the dictation daemon.
 fn named_event(name: &str, cell: &'static std::sync::OnceLock<Handle>) -> HANDLE {
-    cell.get_or_init(|| Handle(unsafe { CreateEventW(std::ptr::null(), 1, 0, wide(name).as_ptr()) })).0
+    cell.get_or_init(|| Handle(unsafe { CreateEventW(std::ptr::null(), 1, 0, named(name).as_ptr()) })).0
 }
 
 fn speaking_event() -> HANDLE {
@@ -46,14 +46,32 @@ fn ducked() -> bool {
     (!h.is_null() && unsafe { WaitForSingleObject(h, 0) } == WAIT_OBJECT_0) || paths::ducking_flag().exists()
 }
 
-/// Moves the player's volume one step toward full or ducked.
+/// Moves the player's volume one step toward full or ducked, takes a new
+/// volume from the talking pill's slider, and holds the player while the
+/// pill's pause button is on.
 struct Duck {
     base: f32,
     now: f32,
+    volume_seq: u32,
 }
 
 impl Duck {
     fn step(&mut self, player: &Player) {
+        if let Some(link) = voice_link::get() {
+            let (seq, vol) = link.volume();
+            if seq != self.volume_seq {
+                self.volume_seq = seq;
+                self.base = vol as f32 / 100.0;
+            }
+            if link.paused() != player.is_paused() {
+                if link.paused() {
+                    player.pause();
+                    link.set_level(0.0);
+                } else {
+                    player.play();
+                }
+            }
+        }
         let target = if ducked() { self.base * DUCK_LEVEL } else { self.base };
         if (self.now - target).abs() > 0.001 {
             self.now += (target - self.now).clamp(-DUCK_STEP, DUCK_STEP);
@@ -74,7 +92,7 @@ fn cacheable(text: &str) -> bool {
 
 pub fn run() {
     let Some(mutex) = NamedMutex::new(SPEAKER_MUTEX) else { return };
-    let cut = unsafe { CreateEventW(std::ptr::null(), 0, 0, wide(CUT_EVENT).as_ptr()) };
+    let cut = unsafe { CreateEventW(std::ptr::null(), 0, 0, named(CUT_EVENT).as_ptr()) };
     let mut audio: Option<(rodio::MixerDeviceSink, Player)> = None;
     loop {
         let Some(guard) = mutex.acquire(0) else { return }; // another speaker drains
@@ -170,8 +188,9 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
     }
     let (_, player) = audio.as_ref().unwrap();
     let base = item.volume.clamp(0, 100) as f32 / 100.0;
+    let volume_seq = voice_link::get().map(|l| l.volume().0).unwrap_or(0);
     // A phrase that starts mid-dictation starts already ducked.
-    let mut duck = Duck { base, now: if ducked() { base * DUCK_LEVEL } else { base } };
+    let mut duck = Duck { base, now: if ducked() { base * DUCK_LEVEL } else { base }, volume_seq };
     player.set_volume(duck.now);
     unsafe {
         ResetEvent(cut);
@@ -223,6 +242,9 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
         }
     }
     stream_to_player(player, rx, cut, &mut duck);
+    if let Some(link) = voice_link::get() {
+        link.set_level(0.0);
+    }
     unsafe { ResetEvent(speaking_event()) };
     let _ = fs::remove_file(paths::player_pid_file());
     let _ = fs::remove_file(paths::player_session_file());
@@ -251,7 +273,7 @@ fn stream_to_player(player: &Player, rx: Receiver<Vec<u8>>, cut: HANDLE, duck: &
     for sample in decoder {
         buf.push(sample);
         if buf.len() >= block {
-            player.append(SamplesBuffer::new(channels, rate, std::mem::take(&mut buf)));
+            player.append(Meter::new(SamplesBuffer::new(channels, rate, std::mem::take(&mut buf))));
             duck.step(player);
             if is_cut() {
                 player.clear();
@@ -260,7 +282,7 @@ fn stream_to_player(player: &Player, rx: Receiver<Vec<u8>>, cut: HANDLE, duck: &
         }
     }
     if !buf.is_empty() {
-        player.append(SamplesBuffer::new(channels, rate, buf));
+        player.append(Meter::new(SamplesBuffer::new(channels, rate, buf)));
     }
     if player.is_paused() {
         player.play();
@@ -271,6 +293,52 @@ fn stream_to_player(player: &Player, rx: Receiver<Vec<u8>>, cut: HANDLE, duck: &
             player.clear();
             return;
         }
+    }
+}
+
+/// Passes samples through to the sound card and publishes their loudness
+/// every ~25 ms (voice_link::level): the talking pill's bars follow what is
+/// actually heard, not what was decoded ahead.
+struct Meter<S: Source> {
+    inner: S,
+    window: Vec<f32>,
+    size: usize,
+}
+
+impl<S: Source> Meter<S> {
+    fn new(inner: S) -> Self {
+        let size = (inner.sample_rate().get() as usize * inner.channels().get() as usize / 40).max(64);
+        Self { inner, window: Vec::with_capacity(size), size }
+    }
+}
+
+impl<S: Source> Iterator for Meter<S> {
+    type Item = S::Item;
+    fn next(&mut self) -> Option<Self::Item> {
+        let s = self.inner.next()?;
+        self.window.push(s);
+        if self.window.len() >= self.size {
+            if let Some(link) = voice_link::get() {
+                link.set_level(voice_link::loudness(&self.window));
+            }
+            self.window.clear();
+        }
+        Some(s)
+    }
+}
+
+impl<S: Source> Source for Meter<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.current_span_len()
+    }
+    fn channels(&self) -> rodio::ChannelCount {
+        self.inner.channels()
+    }
+    fn sample_rate(&self) -> rodio::SampleRate {
+        self.inner.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
     }
 }
 

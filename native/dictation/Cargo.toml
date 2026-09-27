@@ -32,6 +32,7 @@ features = [
   "Win32_Security",
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Dwm",
+  "Win32_Media",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input",
   "Win32_UI_Input_KeyboardAndMouse",
