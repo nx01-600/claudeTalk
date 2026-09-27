@@ -23,8 +23,16 @@ fn env_path(name: &str) -> PathBuf {
     PathBuf::from(std::env::var_os(name).unwrap_or_default())
 }
 
+/// Same file or folder, however it was spelled (case, `\\?\` prefix, `..`).
+fn same_path(a: &Path, b: &Path) -> bool {
+    let key = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().to_lowercase();
+    key(a) == key(b)
+}
+
+/// Adds `p` if it exists and isn't listed yet (venv-path.txt usually points
+/// at the default venv, which would otherwise be counted twice).
 fn push_if(v: &mut Vec<Found>, p: PathBuf, why: &'static str) {
-    if p.exists() {
+    if p.exists() && !v.iter().any(|f| same_path(&f.path, &p)) {
         v.push(Found { path: p, why });
     }
 }
@@ -206,4 +214,21 @@ pub fn session_notice() -> String {
          At a natural moment, tell the user once and offer to clean up. To see what would go: \"{exe}\" cleanup. \
          To remove it, after the user agrees: \"{exe}\" cleanup --yes. It only removes claudeTalk's own leftovers."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_if_skips_the_same_folder_spelled_differently() {
+        let dir = std::env::temp_dir().join(format!("ct-cleanup-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Venv")).unwrap();
+        let mut v = Vec::new();
+        push_if(&mut v, dir.join("Venv"), "a");
+        push_if(&mut v, dir.join("sub").join("..").join("venv"), "b");
+        push_if(&mut v, dir.join("missing"), "c");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(v.len(), 1);
+    }
 }
