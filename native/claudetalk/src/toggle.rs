@@ -29,6 +29,7 @@ const HELP: &str = r#"Settings (set <setting> <value>):
   wake         on | off   (start dictating by saying the wake phrase)
   phrase       any words, e.g. "Hey Jarvis"   (the wake phrase; each language has its default)
   spoken       on | off   (talk mode answers out loud only dictated messages)
+  indicator    on | off   (while Claude talks, a pill with a red X that silences it)
   share        on | off   (overlay visible in screen sharing)
   glass        0 to 100   (glass effect intensity)
   position     bottom | top   (also forgets a dragged spot)
@@ -226,6 +227,9 @@ pub fn resolve(name: &str, v: &str) -> Result<(&'static str, Value, String), Str
     }
     if is(&["spoken", "speak_only_spoken", "solo_voz"]) {
         return boolean("speak_only_spoken", "speak only to dictated messages");
+    }
+    if is(&["indicator", "speaking_indicator", "indicador"]) {
+        return boolean("speaking_indicator", "\"Claude is talking\" pill with the stop button");
     }
     if is(&["share", "show_in_capture", "capture"]) {
         return boolean("show_in_capture", "visible in screen share");

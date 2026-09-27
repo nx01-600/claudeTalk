@@ -135,27 +135,22 @@ impl Pill {
     /// Where the pill goes: the remembered drag spot if it still lands on a
     /// screen, else centered at the bottom or top of the primary screen.
     pub fn place(&mut self, top: bool, saved: Option<(i32, i32)>) {
-        if let Some((x, y)) = saved {
-            let m = window::monitor_at(x, y, true).unwrap();
-            self.scale = m.scale;
-            let (w, h) = self.phys_size();
-            if window::monitor_at(x + w as i32 / 2, y + h as i32 / 2, false).is_some() {
-                self.win.x = x;
-                self.win.y = y;
-                return;
-            }
-        }
-        let m = window::primary();
-        self.scale = m.scale;
-        let (w, h) = self.phys_size();
-        let s = self.scale;
-        let work = m.work;
-        self.win.x = work.left + ((work.right - work.left) - w as i32) / 2;
-        self.win.y = if top {
-            work.top + ((EDGE_MARGIN - SLIDE_PX - INSET) * s).round() as i32
+        let (x, y, s) = home(top, saved);
+        self.win.x = x;
+        self.win.y = y;
+        self.scale = s;
+    }
+
+    /// Where the visible pill's center is on screen (physical px) and the
+    /// scale there: its current spot while shown, else where it would appear.
+    pub fn center(&self, top: bool, saved: Option<(i32, i32)>) -> (f32, f32, f32) {
+        let (x, y, s) = if self.win.visible && !self.closing {
+            (self.win.x, self.win.y, self.scale)
         } else {
-            work.bottom - h as i32 - ((EDGE_MARGIN - INSET) * s).round() as i32
+            home(top, saved)
         };
+        let rest_top = INSET + if top { SLIDE_PX } else { 0.0 };
+        (x as f32 + (INSET + WIDTH / 2.0) * s, y as f32 + (rest_top + HEIGHT / 2.0) * s, s)
     }
 
     pub fn pill_top(&self, top: bool) -> f32 {
@@ -475,6 +470,30 @@ impl Pill {
         gfx::fill(pm, &GEAR, white(alpha), t);
     }
 
+}
+
+/// The pill window's origin and scale for `place` (see there).
+fn home(top: bool, saved: Option<(i32, i32)>) -> (i32, i32, f32) {
+    let (lw, lh) = Pill::logical_size();
+    let size = |s: f32| ((lw * s).ceil() as i32, (lh * s).ceil() as i32);
+    if let Some((x, y)) = saved {
+        let m = window::monitor_at(x, y, true).unwrap();
+        let (w, h) = size(m.scale);
+        if window::monitor_at(x + w / 2, y + h / 2, false).is_some() {
+            return (x, y, m.scale);
+        }
+    }
+    let m = window::primary();
+    let s = m.scale;
+    let (w, h) = size(s);
+    let work = m.work;
+    let x = work.left + ((work.right - work.left) - w) / 2;
+    let y = if top {
+        work.top + ((EDGE_MARGIN - SLIDE_PX - INSET) * s).round() as i32
+    } else {
+        work.bottom - h - ((EDGE_MARGIN - INSET) * s).round() as i32
+    };
+    (x, y, s)
 }
 
 static START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);

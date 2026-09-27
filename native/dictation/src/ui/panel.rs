@@ -128,6 +128,7 @@ fn rows(kind: Kind) -> Vec<Row> {
                 Toggle("\u{0}wake", "wake_word"), // label built from the phrase
                 Text("Wake phrase", "wake_phrase"),
                 Toggle("Speak only when I talk", "speak_only_spoken"),
+                Toggle("Show when Claude talks", "speaking_indicator"),
             ]);
             v
         }

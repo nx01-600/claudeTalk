@@ -7,6 +7,7 @@ pub mod gfx;
 pub mod glass;
 pub mod panel;
 pub mod pill;
+pub mod talk;
 pub mod tray;
 pub mod window;
 
@@ -17,6 +18,7 @@ use editor::Editor;
 use glass::{Material, INSET};
 use panel::{Action, Kind, Panel, PANEL_W};
 use pill::{Click, Pill};
+use talk::TalkPill;
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -32,6 +34,7 @@ const ID_PILL: isize = 1;
 const ID_PANEL: isize = 2;
 const ID_VOICE: isize = 3;
 const ID_EDITOR: isize = 4;
+const ID_TALK: isize = 5;
 
 const T_FRAME: usize = 1;
 const T_TRACK: usize = 2;
@@ -40,11 +43,13 @@ const T_WATCHDOG: usize = 4;
 const T_CAPTURE: usize = 5;
 const T_LIVE: usize = 6;
 const T_BADGE: usize = 7;
+const T_SPEAK: usize = 8;
 
 struct App {
     shared: Arc<Shared>,
     main: HWND,
     pill: Pill,
+    talk: TalkPill,
     panel: Panel,
     voice: Panel,
     editor: Editor,
@@ -53,7 +58,7 @@ struct App {
     watchdog: Option<Watchdog>,
     badge_token: u64,
     frame_on: bool,
-    tracking_mouse: [bool; 4],
+    tracking_mouse: [bool; 6],
     cursor: *const u16,
     taskbar_created: u32,
 }
@@ -105,7 +110,7 @@ impl App {
             self.frame_on = true;
             unsafe { SetTimer(self.main, T_FRAME, 16, None) };
         }
-        let live = !self.capturable() && (self.pill.win.visible || self.panel.win.visible);
+        let live = !self.capturable() && (self.pill.win.visible || self.panel.win.visible || self.talk.win.visible);
         unsafe {
             if live {
                 SetTimer(self.main, T_LIVE, 40, None);
@@ -126,6 +131,10 @@ impl App {
             let pm = self.pill.render(m, top);
             self.pill.win.present(&pm);
         }
+        if pill && self.talk.win.visible {
+            let pm = self.talk.render(m);
+            self.talk.win.present(&pm);
+        }
         if panels {
             let cfg = self.shared.config.lock().unwrap();
             for p in [&mut self.panel, &mut self.voice] {
@@ -143,6 +152,14 @@ impl App {
         let mut pill_on = false;
         if self.pill.win.visible || self.pill.win.opacity > 0.0 {
             pill_on = self.pill.tick() && self.pill.win.visible;
+        }
+        if self.talk.win.visible {
+            self.aim_talk();
+            let (on, moved) = self.talk.tick();
+            if moved && !self.capturable() {
+                self.talk.refresh_background(material(&self.shared), false);
+            }
+            pill_on |= on;
         }
         let panel_was = self.panel.win.visible;
         let mut panels_moving = false;
@@ -163,7 +180,7 @@ impl App {
             self.frame_on = false;
             unsafe { KillTimer(self.main, T_FRAME) };
         }
-        if !self.pill.win.visible && !self.panel.win.visible && !self.voice.win.visible {
+        if !self.pill.win.visible && !self.panel.win.visible && !self.voice.win.visible && !self.talk.win.visible {
             unsafe { KillTimer(self.main, T_LIVE) };
         }
     }
@@ -173,7 +190,8 @@ impl App {
     fn refresh_backgrounds(&mut self) {
         let m = material(&self.shared);
         let cap = self.capturable();
-        let pill = self.pill.win.visible && self.pill.refresh_background(m, cap);
+        let mut pill = self.pill.win.visible && self.pill.refresh_background(m, cap);
+        pill |= self.talk.win.visible && self.talk.refresh_background(m, cap);
         let mut panels = false;
         if self.panel.win.visible {
             panels |= self.panel.refresh_background(m, cap);
@@ -218,6 +236,47 @@ impl App {
             }
             UiEvent::Status(s) => self.tray.set_label(&s),
         }
+    }
+
+    // --- "Claude is talking" pill -------------------------------------------------
+
+    /// Centered where the dictation pill goes; to its left while it's up.
+    fn aim_talk(&mut self) {
+        let top = self.top();
+        let (cx, cy, s) = self.pill.center(top, self.saved_drag());
+        let beside = self.pill.win.visible && !self.pill.closing;
+        let cx = if beside { cx - (pill::WIDTH / 2.0 + talk::GAP + talk::WIDTH / 2.0) * s } else { cx };
+        self.talk.aim(TalkPill::origin_for_center(cx, cy, s), s);
+    }
+
+    /// Polled a few times a second: shows the pill while Claude's voice
+    /// plays (or is about to), hides it once Claude has been quiet a moment.
+    fn poll_talk(&mut self) {
+        let talking = self.cfg_bool("speaking_indicator") && crate::wake::claude_is_talking();
+        if self.talk.heard(talking) {
+            let cap = self.capturable();
+            self.aim_talk();
+            self.talk.fade_in(cap);
+            if !self.talk.win.visible {
+                self.talk.refresh_background(material(&self.shared), cap);
+                self.talk.win.visible = true;
+                let pm = self.talk.render(material(&self.shared));
+                self.talk.win.present(&pm);
+                self.talk.win.visible = false;
+                self.talk.win.show();
+            }
+            self.start_frames();
+        } else if self.talk.shown() && (self.talk.quiet() || !self.cfg_bool("speaking_indicator")) {
+            self.talk.fade_out();
+            self.start_frames();
+        }
+    }
+
+    /// The red X: Claude stops talking now; talk mode and dictation stay on.
+    fn silence_claude(&mut self) {
+        ct_core::queue::stop(None);
+        self.talk.silenced();
+        self.start_frames();
     }
 
     // --- panels ---------------------------------------------------------------------
@@ -353,6 +412,7 @@ impl App {
                 self.tray.set_label(&label);
             }
             "glass" => self.refresh_backgrounds(),
+            "speaking_indicator" => self.poll_talk(),
             "lang" => {
                 ct_core::lang::reload();
                 let cfg = self.shared.config.lock().unwrap();
@@ -423,6 +483,7 @@ impl App {
         let hwnd = match id {
             ID_PILL => self.pill.win.hwnd,
             ID_PANEL => self.panel.win.hwnd,
+            ID_TALK => self.talk.win.hwnd,
             _ => self.voice.win.hwnd,
         };
         if msg == WM_MOUSEMOVE && !self.tracking_mouse[id as usize] {
@@ -431,6 +492,22 @@ impl App {
             self.tracking_mouse[id as usize] = true;
         }
         match id {
+            ID_TALK => match msg {
+                WM_MOUSEMOVE => {
+                    let on_x = self.talk.mouse_move(sx, sy);
+                    self.cursor = if on_x { IDC_HAND } else { IDC_ARROW };
+                }
+                WM_MOUSELEAVE_ => {
+                    self.tracking_mouse[ID_TALK as usize] = false;
+                    self.talk.mouse_leave();
+                }
+                WM_LBUTTONDOWN => {
+                    if self.talk.mouse_down(sx, sy) {
+                        self.silence_claude();
+                    }
+                }
+                _ => {}
+            },
             ID_PILL => match msg {
                 WM_MOUSEMOVE => {
                     let (gear, drag_started) = self.pill.mouse_move(sx, sy, top, open);
@@ -508,6 +585,7 @@ impl App {
     fn timer(&mut self, id: usize) {
         match id {
             T_FRAME => self.frame(),
+            T_SPEAK => self.poll_talk(),
             T_LIVE => {
                 if !self.capturable() {
                     self.refresh_backgrounds();
@@ -570,13 +648,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     let id = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
     match msg {
         WM_MOUSEACTIVATE if id != ID_EDITOR => return MA_NOACTIVATE as LRESULT,
-        WM_SETCURSOR if id == ID_PILL || id == ID_PANEL || id == ID_VOICE => {
+        WM_SETCURSOR if id == ID_PILL || id == ID_PANEL || id == ID_VOICE || id == ID_TALK => {
             if let Some(c) = with_app(|a| a.cursor) {
                 SetCursor(LoadCursorW(std::ptr::null_mut(), c));
                 return 1;
             }
         }
-        WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSELEAVE_ if (ID_PILL..=ID_VOICE).contains(&id) => {
+        WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSELEAVE_ if (ID_PILL..=ID_VOICE).contains(&id) || id == ID_TALK => {
             with_app(|a| a.mouse(id, msg));
             return 0;
         }
@@ -678,6 +756,7 @@ pub fn run(shared: Arc<Shared>, auto: bool) {
             shared: shared.clone(),
             main,
             pill: Pill::new(Layered::create(&class, ID_PILL)),
+            talk: TalkPill::new(Layered::create(&class, ID_TALK)),
             panel: Panel::new(Layered::create(&class, ID_PANEL), Kind::Dictation),
             voice: Panel::new(Layered::create(&class, ID_VOICE), Kind::Voice),
             editor: Editor::create(&class, ID_EDITOR),
@@ -686,13 +765,14 @@ pub fn run(shared: Arc<Shared>, auto: bool) {
             watchdog: auto.then(Watchdog::new),
             badge_token: 0,
             frame_on: false,
-            tracking_mouse: [false; 4],
+            tracking_mouse: [false; 6],
             cursor: IDC_ARROW,
             taskbar_created: RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()),
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
         SetTimer(main, T_TRACK, 500, None);
         SetTimer(main, T_CONFIG, 1000, None);
+        SetTimer(main, T_SPEAK, 150, None);
         if auto {
             SetTimer(main, T_WATCHDOG, 5000, None);
         }
@@ -749,6 +829,13 @@ pub fn render_test(dir: &std::path::Path, cfg: &crate::config::Config, scale: f3
     for (name, phase, ms, levels, ok) in shots {
         p.test_state(phase, ms, levels, ok);
         let _ = p.render(m, false).save_png(dir.join(format!("{name}.png")));
+    }
+    let mut t = TalkPill::new(Layered::create(&class, ID_TALK));
+    t.scale = scale;
+    let (w, h) = t.phys_size();
+    for (name, hover) in [("talk", false), ("talk-hover", true)] {
+        t.test_backdrop(&backdrop(w, h), m, hover);
+        let _ = t.render(m).save_png(dir.join(format!("{name}.png")));
     }
     for (kind, name) in [(Kind::Dictation, "panel-dictation"), (Kind::Voice, "panel-voice")] {
         let mut pn = Panel::new(Layered::create(&class, ID_PANEL), kind);

@@ -21,6 +21,7 @@ pub fn defaults() -> Map<String, Value> {
         "wake_word": false,
         "wake_phrase": pack.wake_phrase,
         "speak_only_spoken": false,
+        "speaking_indicator": true,
         "glass": 60,
         "position": "bottom",
         "remember_drag": false,
