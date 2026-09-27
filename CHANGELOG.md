@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.1 — fixes
+
+- **Model download.** A fresh install panicked when downloading the Whisper
+  and VAD models (ureq fell back to Rustls, which isn't compiled in), so
+  dictation never started. Every download now uses one agent,
+  `ct_core::http::agent()`, pinned to the Windows TLS stack.
+- **Privacy.** The dictation log (`%TEMP%\claudetalk-dictation.log`) no longer
+  records what the wake-phrase listener hears or what you dictate: only word
+  counts and events. The log is emptied every time the daemon starts, which
+  also wipes what older versions wrote.
+- **Cleanup.** `claudetalk cleanup` listed the Python venv twice when
+  `venv-path.txt` pointed at the default folder, doubling the total and
+  failing on the second removal.
+- **Hooks.** Processes started from a hook no longer inherit Claude Code's
+  stdin/stdout/stderr, so a detached daemon can't keep a hook or a Bash task
+  waiting.
+
 ## 0.7.0 — native dictation, no Python left
 
 - **Dictation.** `bin\claudetalk-dictation.exe` (Rust) replaces the Python

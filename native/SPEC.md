@@ -308,3 +308,10 @@ Fragile details that must survive:
   - The daemon finds `claudetalk.exe` through
     `%APPDATA%\claudeTalk\claudetalk-path.txt`, which every SessionStart
     rewrites.
+- **v0.7.1:**
+  - `%TEMP%\claudetalk-dictation.log` is emptied when a daemon instance
+    starts, and never holds transcribed text: `[wake] heard N words` and
+    `[text] N words` replace the quoted text.
+  - Every HTTP download goes through `ct_core::http::agent()` (NativeTls).
+  - `cleanup` skips a path already listed (compared after canonicalizing).
+  - Detached children don't inherit the spawner's std handles.
