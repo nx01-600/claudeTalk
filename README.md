@@ -25,10 +25,12 @@
 
 Voice for **Claude Code** on Windows, in both directions:
 
-- **Claude speaks**: reads its responses out loud (Microsoft Edge neural voices, streamed by a small native player).
+- **Claude speaks**: reads its responses out loud (Microsoft Edge neural voices, streamed by a small native player), with a glass player to pause, skip, stop or turn it down while it talks.
 - **You dictate**: press a key chord, talk, and the text appears transcribed in the window you had focused. All local: Whisper runs on your GPU (any GPU with Vulkan: NVIDIA, AMD or Intel) or the CPU, and the audio never leaves your machine.
 
 Dictation comes with a floating *liquid glass* overlay (dark glass, white ink) with bars that follow your voice, and a settings panel from the gear icon.
+
+It works in any language: Spanish and English are built in, and Claude writes the language pack for any other the first time you ask for it ([docs/LANGUAGES.md](docs/LANGUAGES.md)).
 
 > Status: functional and in daily use. This is stage 2 of a project whose north star is a live, interruptible conversation with Claude, like a call.
 
@@ -222,6 +224,12 @@ key chord (raw input) ──► recording (16 kHz, silence cutoff, noise gate) �
         │                                                       clipboard + simulated Ctrl+V
         │                                                       (only if focus didn't change)
 "Oye Claude" ──► VAD ──► Whisper ──► same recording ──► typed into the last Claude session's console
+
+Claude's answer ──► hook / say ──► queue (one file per phrase, with its session and voice)
+        ──► speaker: Edge TTS stream ──► sound card
+                 │  loudness, pause, live volume (shared memory)
+                 ▼
+        glass player capsule (pause · X · skip · volume, real bars)
 ```
 
 Decisions worth knowing (explained in the source comments):
@@ -231,6 +239,9 @@ Decisions worth knowing (explained in the source comments):
 - **Real, live glass.** Windows 11's native backdrops return a flat panel for hand-painted windows, so the overlay does it itself: the window is excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE`), grabs what is behind it, blurs it with color and boosted saturation, tints it, and adds edge lensing and a specular rim. Side effect: the overlay is invisible in screenshots and screen sharing, unless "Show in screen share" is on.
 - **Never steals focus.** The overlay and panels use `WS_EX_NOACTIVATE`; if they activated, the paste would go to the overlay.
 - **Resident model.** Whisper loads (and warms up its GPU pipelines) at startup and unloads after 30 minutes of no use.
+- **Even 60 fps.** `WM_TIMER` messages have the lowest priority and follow Windows' ~15.6 ms tick, so animations ran at an uneven ~40 fps. A small pacing thread posts one frame message every 16.7 ms (never two in flight), and the live glass re-blurs one window per tick instead of all of them at once.
+- **Speaker and overlay talk through shared memory.** The player measures the loudness of the audio as it reaches the sound card and publishes it, with the pause state and a live volume, in a few bytes of named shared memory: the capsule's bars and buttons cost no disk I/O and no extra analysis.
+- **No answer is lost.** The queue is one file per phrase; a phrase leaves it only after it played or was skipped. If the player dies mid-phrase, the dictation app notices (its PID is gone), clears the "speaking" signal and starts a new player for what is still queued.
 
 ## Structure
 
@@ -240,7 +251,8 @@ assets/claudetalk.ico  Start Menu / tray icon (embedded in claudetalk-dictation.
 assets/logo.png, assets/screenshots/  README images (from `claudetalk-dictation.exe --render-test`)
 bin/                claudetalk.exe, built from native/ (claudetalk-dictation.exe comes from the release)
 commands/           /voice /dictation
-skills/talk/        /talk: turns talk mode on and off, changes settings
+skills/talk/        /talk: turns talk mode on and off, changes settings, makes language packs
+docs/LANGUAGES.md   the language setting and how a language pack is made
 .mcp.json           `voice` MCP server → claudetalk.exe mcp (the `say` tool)
 hooks/hooks.json    UserPromptSubmit / Stop / SessionStart → claudetalk.exe hook prompt|stop|session-start
 scripts/install-app.ps1  adds the claudeTalk Start Menu (and desktop) shortcut
@@ -260,6 +272,8 @@ native/             Rust sources; SPEC.md is the behavior contract
 - "Doesn't paste into that app but does into others": if the app runs as administrator and the daemon doesn't, Windows blocks the synthetic `Ctrl+V` (UIPI). Launch the daemon with the same privilege level.
 - Two instances can't coexist: the second one warns and exits.
 - Leftovers from older versions: `claudetalk.exe cleanup` (see [Upgrading](#upgrading-from-v05-or-earlier)).
+- Choppy animations: start the dictation app with `CLAUDETALK_PERF=1` and the log gets, every 2 s, how long frames and glass refreshes took.
+- `[speaker]` lines in the dictation log mean a player died and was replaced; the queued answers still play.
 
 ## Development
 
@@ -269,9 +283,11 @@ Needs Rust, and for the dictation crate (whisper.cpp) Visual Studio Build Tools,
 native\build.cmd . cargo test --workspace                # unit tests
 native\build.cmd . cargo build --release --workspace     # both executables, in C:\ctb\release
 copy C:\ctb\release\claudetalk*.exe bin\       # a local claudetalk-dictation.exe here wins over the download (git-ignored)
-C:\ctb\release\claudetalk-dictation.exe --render-test %TEMP%\ct 1.5   # PNGs of the pill and panels
+C:\ctb\release\claudetalk-dictation.exe --render-test %TEMP%\ct 1.5   # PNGs of the pill, the player capsule and the panels
 powershell -File native\tests\gen-golden.ps1             # optional: parity fixtures from your own transcripts
 ```
+
+Live tests must not touch the running claudeTalk: set `CLAUDETALK_NS` (a suffix for every named mutex, event and shared-memory block) and point `APPDATA`, `LOCALAPPDATA` and `TEMP` at a scratch folder for the test processes. With `CLAUDETALK_NS` set, signaling the event `Local\claudetalk_test_record<suffix>` shows or hides the dictation pill without the mic or the keyboard.
 
 `build.cmd` sets up the MSVC environment, uses Ninja (MSBuild trips over long paths in the Vulkan shader build) and a short target directory (`C:\ctb`).
 

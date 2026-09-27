@@ -82,6 +82,9 @@ but other tools may (the `audio-to-text` skill needs ffmpeg). Ask first.
   translated in the Spanish pack. See `docs/LANGUAGES.md`.
 - Before a release, test a fresh install (empty profile) and an upgrade from
   an older version, and read `%TEMP%\claudetalk-dictation.log` for panics.
+- Live tests must never touch the user's running claudeTalk (speaker, queue,
+  events, daemon): set `CLAUDETALK_NS` and a scratch `APPDATA`,
+  `LOCALAPPDATA` and `TEMP` for test processes (README, Development).
 - For every feature, update the README's feature table, the description in
   `.claude-plugin/plugin.json` and `marketplace.json`, and the GitHub repo
   description.
