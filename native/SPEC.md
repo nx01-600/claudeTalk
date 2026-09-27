@@ -349,3 +349,6 @@ Fragile details that must survive:
     Live glass: `LIVE_MS` 45, one window per tick in turn.
   - `CLAUDETALK_NS` suffixes every kernel object name (`lock::named`); with
     it set, `Local\claudetalk_test_record` toggles a fake recording pill.
+- **v0.8.2:** `audio::Resampler` uses a polyphase table (256 phases, the
+  same Blackman-windowed sinc, rows normalized) instead of evaluating the
+  kernel per tap; the history starts with K zeros instead of 32.

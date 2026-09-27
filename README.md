@@ -186,6 +186,7 @@ Why it doesn't cost that all the time:
 
 - **One model for everything.** Whisper `large-v3-turbo` (q8_0 quantization, which transcribed our Spanish test set with fewer errors than the float16 model v0.5 used: see `native/bench/RESULTS.md`) stays loaded so a dictation starts without waiting. "Oye Claude" reuses that same model.
 - **It unloads itself.** After **30 minutes** without use the model is released and its VRAM goes back to the system. The next dictation reloads it, which takes a couple of seconds.
+- **Listening is cheap.** With the wake phrase listening (mic open, e.g. all through a voice call) the whole daemon uses about **1 % of one core**: the mic is brought down to 16 kHz with a precomputed polyphase filter (before v0.8.2 that step alone took about 25 % of a core).
 - **Silence is free.** The wake word listener only reads the mic. A cheap energy check cuts out short sound bursts (0.3 to 2.5 s), a small voice detector (Silero VAD, on the CPU) drops the ones that aren't a voice, and only speech reaches Whisper.
 - **The wake word listens only while talk mode is on** in at least one session and the "Oye Claude" toggle is on (whatever the wake phrase is). Otherwise the mic stays closed between dictations.
 - **No polling.** The chord is detected from the keyboard's raw input events, so nothing checks the keys 60 times a second; the glass is only re-blurred when what's behind it changed, and the panels only repaint while something in them moves.

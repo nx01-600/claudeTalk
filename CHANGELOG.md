@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.2 — a quiet mic
+
+- **The wake phrase listener no longer eats a CPU core.** While the mic
+  was open ("Oye Claude" with talk mode on, all day long in a voice call)
+  the dictation app used about 25 % of a core: the resampler that brings
+  the mic down to 16 kHz computed a sine and two cosines per filter tap,
+  193 taps per sample at 48 kHz. The filter is now precomputed for 256
+  fractional positions, so each sample is a plain dot product: the same
+  output (within 0.01), 45 times faster, and the whole app idles at about
+  1 % while listening.
+
 ## 0.8.1 — a player for Claude's voice
 
 - **The talking capsule is a player now**: pause / resume, a red X that
