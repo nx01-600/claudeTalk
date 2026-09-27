@@ -334,3 +334,18 @@ Fragile details that must survive:
   talks and hides it 700 ms after the last sign of speech. Its X runs `queue::stop(None)` and ignores
   speech for 900 ms. Placed at the dictation pill's center, or `GAP` to its
   left while the dictation pill is up; it glides between the two.
+- **v0.8.1 (player):**
+  - `ct_core::voice_link` (`Local\claudetalk_voice_link`, shared memory):
+    `level` (0..1, written by the speaker's `Meter` source every ~25 ms as
+    samples play), `paused` (the speaker pauses/resumes its player),
+    `volume` + `volume_seq` (applied to the phrase playing).
+  - The capsule's X and skip both cut only the phrase playing
+    (`queue::signal_cut`) and unpause; `queue::stop` also unpauses.
+  - The daemon's 150 ms poll heals a dead player: a dead pid in
+    `claudetalk_player.pid` resets the speaking event and the player files;
+    a non-empty queue with no speaker for 1.5 s starts `claudetalk speaker`
+    (null stdio, detached).
+  - Frames: `ui::pacer` thread, 16.667 ms, one message in flight at most.
+    Live glass: `LIVE_MS` 45, one window per tick in turn.
+  - `CLAUDETALK_NS` suffixes every kernel object name (`lock::named`); with
+    it set, `Local\claudetalk_test_record` toggles a fake recording pill.

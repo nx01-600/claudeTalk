@@ -34,7 +34,7 @@ Every change is saved at once and the dictation app applies it within a second: 
 | `wake` | on / off | start dictating by saying the wake phrase (only while talk mode is on) |
 | `phrase` | any words, quoted, e.g. `"Hola Jarvis"` | the wake phrase itself (default "Oye Claude"); 2 or 3 words that don't come up in normal talk work best |
 | `spoken` | on / off | talk mode answers out loud only messages the user dictated (they start with 🎙️); typed ones get text only |
-| `indicator` | on / off | while Claude talks, a glass pill with a red X that silences Claude (talk mode stays on) |
+| `indicator` | on / off | while Claude talks, a glass player capsule: pause/resume, X (drops only the answer playing), skip (with the queue count) and volume |
 | `share` | on / off | overlay visible in screen sharing and recordings |
 | `glass` | 0 to 100 | glass effect intensity |
 | `position` | bottom / top | where the overlay appears (also forgets a dragged spot) |

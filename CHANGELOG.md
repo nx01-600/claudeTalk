@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.1 — a player for Claude's voice
+
+- **The talking capsule is a player now**: pause / resume, a red X that
+  drops only the answer playing (the queue goes on), skip with the number of
+  answers waiting (blue when some come from another session) and a volume
+  slider that opens from the speaker icon and applies to the answer playing.
+- **Real bars**: the player measures the loudness of the audio as it
+  reaches the sound card and shares it with the dictation app through a
+  small shared-memory block (`ct_core::voice_link`); no extra analysis.
+- **No answer lost**: the X no longer empties the queue. If the player dies
+  mid-answer, the dictation app clears its "speaking" signal and starts a new
+  player for what is still queued.
+- **Draggable capsule**: drag it by its body; the dictation pill moves with
+  it, and **Remember dragged spot** keeps the place.
+- **Smooth animations**: frames come from a small pacing thread at an even
+  60 fps (Windows' timer gave ~40 with uneven gaps), the live glass refreshes
+  one window per tick instead of all at once, and the capsule only captures
+  the area it paints. `CLAUDETALK_PERF=1` logs frame and glass timings.
+- **Isolated tests**: `CLAUDETALK_NS` suffixes every named mutex, event and
+  shared-memory block, so test instances can't touch the real ones.
+
 ## 0.8.0 — any language
 
 - **One language setting** (`/talk set language en`, or the gear's
