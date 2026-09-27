@@ -315,3 +315,22 @@ Fragile details that must survive:
   - Every HTTP download goes through `ct_core::http::agent()` (NativeTls).
   - `cleanup` skips a path already listed (compared after canonicalizing).
   - Detached children don't inherit the spawner's std handles.
+- **v0.8 (languages):**
+  - `lang` in dictation.json is claudeTalk's language; `language` stays the
+    dictation's (the same code, or `auto`). Without `lang`, the language is
+    `language` when it's a code, else Windows' UI language (es/en), else en.
+  - Voices, the voice pool for parallel sessions, the default wake phrase,
+    the spoken samples, `left_on_screen`, Whisper's prompt and the panel text
+    come from the language pack (`ct_core::lang`), not constants. Packs for
+    other languages live in `%APPDATA%\claudeTalk\lang\<code>.json`.
+  - `toggle set language X` applies a pack (exit 3 with instructions when
+    there is none); new actions `toggle template CODE`, `toggle pack FILE`;
+    new command `claudetalk voices CODE`; new setting `dictation auto|same`.
+  - The talk rules name the configured language instead of "usually Spanish".
+  - "Hey Claude" uses the same tuned matching as "Oye Claude".
+- **v0.8 (talking pill):** the daemon polls every 150 ms (`wake::claude_is_talking`:
+  the speaking event or a non-empty queue) while `speaking_indicator` (default
+  true) is on. It shows a second glass window (`ui/talk.rs`) while Claude
+  talks and hides it 700 ms after the last sign of speech. Its X runs `queue::stop(None)` and ignores
+  speech for 900 ms. Placed at the dictation pill's center, or `GAP` to its
+  left while the dictation pill is up; it glides between the two.

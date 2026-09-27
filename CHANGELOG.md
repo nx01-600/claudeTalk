@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.8.0 — any language
+
+- **One language setting** (`/talk set language en`, or the gear's
+  **Language**) switches Claude's voices, the dictation language, Whisper's
+  hint, the default wake phrase ("Oye Claude" / "Hey Claude"), the fixed
+  spoken lines and the gear panel and tray menu. Spanish and English are
+  built in (six Edge voices each).
+- **Stop button for Claude's voice**: while Claude talks, a glass pill with
+  moving bars and a red X appears where the dictation pill goes. The X
+  silences Claude (queue included) without turning talk mode or dictation
+  off. It slides left of the dictation pill while that one is up, follows it
+  when dragged, and can be hidden (**Show when Claude talks**,
+  `/talk set indicator off`).
+- **Other languages**: Claude writes a language pack the first time one is
+  asked for (`claudetalk voices CODE`, `toggle template CODE`,
+  `toggle pack FILE`), saved in `%APPDATA%\claudeTalk\lang\`. See
+  `docs/LANGUAGES.md`.
+- **Detect language automatically** in the gear (`/talk set dictation auto`)
+  lets Whisper detect the spoken language on each dictation.
+- Talking sessions get voices of the new language when it changes.
+- New installs start in Windows' display language (Spanish or English, else
+  English). Older installs keep their dictation language.
+- The panel shrinks a label that doesn't fit next to its control, and splits
+  the voices evenly over rows.
+- The cleanup notice and the README tell Claude to always ask the owner
+  before removing an older version's leftovers, even when it installed
+  claudeTalk itself.
+
 ## 0.7.1 — fixes
 
 - **Model download.** A fresh install panicked when downloading the Whisper
