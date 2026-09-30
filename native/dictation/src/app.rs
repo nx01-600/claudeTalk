@@ -103,11 +103,11 @@ impl Shared {
         std::thread::spawn(move || me.worker(true));
     }
 
-    fn should_cancel(&self) -> bool {
+    fn should_cancel(&self, esc: &hotkey::EscapeGrab) -> bool {
         if self.force_stop.load(Ordering::SeqCst) || self.cancel.load(Ordering::SeqCst) {
             return true;
         }
-        if hotkey::is_key_down(hotkey::VK_ESCAPE) {
+        if esc.pressed() || hotkey::is_key_down(hotkey::VK_ESCAPE) {
             self.cancel.store(true, Ordering::SeqCst);
             return true;
         }
@@ -153,13 +153,15 @@ impl Shared {
             peak_ratio,
             start_timeout_ms: woken.then_some(WAKE_START_TIMEOUT_MS),
         };
+        let esc = hotkey::EscapeGrab::new();
         let result = match Mic::open() {
-            Ok(mic) => audio::record_until_silence(&mic, &params, || self.should_cancel(), |l| self.post(UiEvent::Level(l))).ok(),
+            Ok(mic) => audio::record_until_silence(&mic, &params, || self.should_cancel(&esc), |l| self.post(UiEvent::Level(l))).ok(),
             Err(e) => {
                 println!("[recording] mic error: {e}");
                 None
             }
         };
+        drop(esc);
         signals::set_ducking(false);
         let cancelled = self.cancel.load(Ordering::SeqCst);
         let Some(mut pcm) = result.filter(|p| !p.is_empty() && !cancelled) else {

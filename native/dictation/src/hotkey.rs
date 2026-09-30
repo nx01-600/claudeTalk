@@ -33,6 +33,38 @@ pub fn register(hwnd: HWND) -> bool {
     unsafe { RegisterRawInputDevices(&dev, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32) != 0 }
 }
 
+/// Escape taken from the whole system while a recording runs: it cancels
+/// the dictation and never reaches the window in front, where it would
+/// interrupt Claude. Registered on the calling thread; released on drop.
+pub struct EscapeGrab(bool);
+
+const ESCAPE_HOTKEY_ID: i32 = 0xC7E5;
+
+impl EscapeGrab {
+    pub fn new() -> Self {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_NOREPEAT};
+        Self(unsafe { RegisterHotKey(std::ptr::null_mut(), ESCAPE_HOTKEY_ID, MOD_NOREPEAT, VK_ESCAPE as u32) } != 0)
+    }
+
+    /// True once Escape was pressed; call on the thread that created it.
+    pub fn pressed(&self) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{PeekMessageW, MSG, PM_REMOVE, WM_HOTKEY};
+        if !self.0 {
+            return false;
+        }
+        let mut msg: MSG = unsafe { std::mem::zeroed() };
+        unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), WM_HOTKEY, WM_HOTKEY, PM_REMOVE) != 0 }
+    }
+}
+
+impl Drop for EscapeGrab {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(std::ptr::null_mut(), ESCAPE_HOTKEY_ID) };
+        }
+    }
+}
+
 pub struct Chord {
     pub keys: Vec<u16>,
     armed: bool,
@@ -79,6 +111,25 @@ pub fn chord_sorted(vks: &[u16]) -> Vec<u16> {
 
 #[cfg(test)]
 mod tests {
+    /// Sends a real Escape: run by hand (`--ignored`). It is swallowed only
+    /// when the grab works, so it never reaches the window in front then.
+    #[test]
+    #[ignore]
+    fn escape_grab_swallows() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+        let grab = super::EscapeGrab::new();
+        assert!(grab.0, "RegisterHotKey(Escape) failed");
+        let key = |flags| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: super::VK_ESCAPE, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+        };
+        let inputs = [key(0), key(KEYEVENTF_KEYUP)];
+        unsafe { SendInput(2, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32) };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(grab.pressed());
+        assert!(!grab.pressed());
+    }
+
     #[test]
     fn sorted() {
         assert_eq!(super::chord_sorted(&[0x20, 0xA0, 0xA2, 0x20]), vec![0xA2, 0xA0, 0x20]);

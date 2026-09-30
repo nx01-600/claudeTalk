@@ -40,7 +40,7 @@ It works in any language: Spanish and English are built in, and Claude writes th
 
 | | |
 |---|---|
-| **Voice dictation** | A tap of `Ctrl + Shift + Space` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels. |
+| **Voice dictation** | A tap of `Ctrl + Shift + Space` (configurable) starts recording. It stops after 2 s of silence, or with another tap. `Esc` cancels, and that Escape never reaches Claude. |
 | **Smart paste** | The text is pasted into the window that had focus when recording started; if you switched windows, it doesn't paste anywhere else. If the focus was on the desktop or the taskbar (nothing there takes text), it goes to your last Claude Code session instead, like "Oye Claude". The text **always** ends up on the clipboard too. |
 | **Liquid glass overlay** | Floating pill made of live glass: what is behind it shows through blurred and in color, with edge refraction and a specular rim. Live volume bars and a settings gear. Never steals focus. |
 | **Send confirmation** | The pill stays up while it transcribes, then compacts into a glass circle: green check when the text was pasted, amber clipboard icon when it was only left on the clipboard (e.g. you switched windows). |
