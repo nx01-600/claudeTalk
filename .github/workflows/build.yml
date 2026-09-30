@@ -24,6 +24,10 @@ jobs:
       # shader build) and a short target dir
       CMAKE_GENERATOR: Ninja
       CARGO_TARGET_DIR: C:/t
+      # ggml's default -march=native targets the runner's CPU (AVX-512):
+      # the daemon died with an illegal instruction on CPUs without it
+      # (Core Ultra 9 275HX). Portable x86-64 with AVX2 instead.
+      GGML_NATIVE: "OFF"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -40,6 +44,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native -> C:/t
+          # whisper-rs-sys doesn't rebuild when GGML_* changes
+          key: ggml-portable
       - name: Test
         working-directory: native
         run: cargo test --workspace
