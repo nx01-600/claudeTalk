@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.4 — a daemon that runs on every CPU
+
+- **The downloaded dictation app no longer crashes on start.** CI built
+  whisper.cpp for its own CPU (AVX-512), so on CPUs without it (such as a
+  Core Ultra 9 275HX) the app died with an illegal instruction right after
+  loading the model. The 0.8.2 and 0.8.3 downloads were affected; local builds were
+  not. CI now builds for portable x86-64 with AVX2.
+
 ## 0.8.3 — Whisper on the right GPU
 
 - **Whisper runs on the discrete GPU on hybrid laptops.** With NVIDIA
