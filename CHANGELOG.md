@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.3 — Whisper on the right GPU
 
 - **Whisper runs on the discrete GPU on hybrid laptops.** With NVIDIA
   Optimus the Intel iGPU is Vulkan's first device, and whisper.cpp took it:
@@ -8,6 +8,10 @@
   0.05). Each wake-phrase check took seconds, so "Oye Claude" was often
   missed. The dictation app now picks the first discrete GPU and logs it
   (`[model] gpu: ...`).
+- **Escape cancels a dictation without interrupting Claude.** The Escape
+  that cancelled a recording also reached the window in front, so it
+  stopped whatever Claude was doing. While recording, the dictation app now
+  takes Escape for itself (a system hotkey), then releases it.
 
 ## 0.8.2 — a quiet mic
 

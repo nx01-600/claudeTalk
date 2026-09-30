@@ -9,7 +9,7 @@
     {
       "name": "claudeTalk",
       "description": "Voice for Claude Code on Windows: talk mode where Claude speaks to you (Edge neural voices, native and instant) with a distinct voice per parallel session, local Whisper dictation (native, light, any GPU or CPU), hands-free \"Oye Claude\" / \"Hey Claude\" (or your own wake phrase) that types into your last Claude session from any app, games included, with any terminal, a liquid glass overlay that confirms each send, a player for Claude's voice (pause, skip, stop, volume, real waveform), and any language: Spanish and English built in, Claude writes the pack for any other.",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "source": "./",
       "category": "productivity"
     }

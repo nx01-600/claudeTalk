@@ -352,7 +352,11 @@ Fragile details that must survive:
 - **v0.8.2:** `audio::Resampler` uses a polyphase table (256 phases, the
   same Blackman-windowed sinc, rows normalized) instead of evaluating the
   kernel per tap; the history starts with K zeros instead of 32.
-- **Unreleased:** `stt::pick_gpu` passes whisper.cpp the `gpu_device` of the
+- **v0.8.3:** `stt::pick_gpu` passes whisper.cpp the `gpu_device` of the
   first discrete GPU (ggml device type GPU, counted among GPUs and iGPUs as
   whisper.cpp does), 0 when there is none. whisper.cpp's default 0 is the
   first Vulkan device, which on a hybrid laptop is the iGPU.
+- **v0.8.3:** while a recording runs, `hotkey::EscapeGrab` registers Escape
+  as a system hotkey (`RegisterHotKey`, worker thread) so the cancelling
+  Escape is not delivered to the foreground window; it is released right
+  after the recording.
