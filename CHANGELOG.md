@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Whisper runs on the discrete GPU on hybrid laptops.** With NVIDIA
+  Optimus the Intel iGPU is Vulkan's first device, and whisper.cpp took it:
+  about 50 times slower than the RTX (real-time factor 2.3 instead of
+  0.05). Each wake-phrase check took seconds, so "Oye Claude" was often
+  missed. The dictation app now picks the first discrete GPU and logs it
+  (`[model] gpu: ...`).
+
 ## 0.8.2 — a quiet mic
 
 - **The wake phrase listener no longer eats a CPU core.** While the mic

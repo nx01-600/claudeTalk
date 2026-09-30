@@ -33,6 +33,31 @@ pub fn prompt_for(language: &str) -> String {
     ct_core::lang::builtin(language).map(|p| p.whisper_prompt).unwrap_or_default()
 }
 
+/// whisper.cpp's `gpu_device` for the first discrete GPU, 0 when there is
+/// none. whisper.cpp counts GPUs and iGPUs in Vulkan's order, and a hybrid
+/// laptop (NVIDIA Optimus) lists its Intel iGPU first: Whisper ran there
+/// about 50 times slower than on the RTX, too slow for the wake phrase.
+fn pick_gpu() -> i32 {
+    use whisper_rs_sys::*;
+    let mut gpus = 0;
+    unsafe {
+        for i in 0..ggml_backend_dev_count() {
+            let dev = ggml_backend_dev_get(i);
+            let kind = ggml_backend_dev_type(dev);
+            if kind != ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU && kind != ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU {
+                continue;
+            }
+            if kind == ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU {
+                let name = std::ffi::CStr::from_ptr(ggml_backend_dev_description(dev)).to_string_lossy();
+                println!("[model] gpu: {name}");
+                return gpus;
+            }
+            gpus += 1;
+        }
+    }
+    0
+}
+
 struct Loaded {
     ctx: WhisperContext,
     vad_path: Option<String>,
@@ -74,9 +99,11 @@ impl Transcriber {
             return Err("model not downloaded yet".into());
         }
         println!("[model] loading");
+        let device = pick_gpu();
         let load = |gpu: bool| {
             let mut p = WhisperContextParameters::default();
             p.use_gpu(gpu);
+            p.gpu_device(device);
             WhisperContext::new_with_params(&path, p)
         };
         let ctx = match (!g.gpu_failed).then(|| load(true)) {

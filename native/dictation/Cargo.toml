@@ -18,6 +18,7 @@ serde_json.workspace = true
 regex.workspace = true
 unicode-normalization.workspace = true
 whisper-rs = "0.16"
+whisper-rs-sys = "0.15"
 cpal = "0.18"
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
 tiny-skia = "0.12"
