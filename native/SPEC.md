@@ -360,3 +360,7 @@ Fragile details that must survive:
   as a system hotkey (`RegisterHotKey`, worker thread) so the cancelling
   Escape is not delivered to the foreground window; it is released right
   after the recording.
+- **v0.8.5:** the talk rules ask for a content summary before long answers
+  and forbid "it's on screen" pointers; the Stop hook, for a long answer with
+  no say, speaks its first whole sentences that fit `MAX_SPOKEN_CHARS`
+  (`left_on_screen` only when none fits).

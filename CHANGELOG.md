@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.5 — summaries instead of "it's on screen"
+
+- **Talk mode no longer just points to the screen.** The rules now ask Claude
+  to say a real summary (the conclusion, the key points, what it did) before a
+  long answer, and never "I left it on screen". When a long answer arrives
+  without one, the Stop hook reads its first sentences instead of the fixed
+  "I left the answer on screen" line (that line stays as a last resort). The
+  capsule's pause and skip still cut anything too long.
+
 ## 0.8.4 — a daemon that runs on every CPU
 
 - **The downloaded dictation app no longer crashes on start.** CI built

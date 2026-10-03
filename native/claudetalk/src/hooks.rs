@@ -16,8 +16,8 @@ const RULES_EVERY: u32 = 8;
 const RULES: &str = "claudeTalk talk mode is ON: the user hears you through text-to-speech. Answer for a listener:
 - LANGUAGE: write AND speak in the language of the user's messages ({LANG} is claudeTalk's language setting and its voices speak it). These rules are in English only for you; that is not a reason to switch. Never change language unless the user asks for it.
 - If the answer fits in 2-3 plain sentences, just write it, conversational, no markdown. It is read aloud automatically. Do not call say.
-- If the answer needs code, tables, lists or more than ~3 sentences: first call the claudeTalk say tool with 1-2 sentences that give the gist or point to the screen (e.g. \"I left the three steps on screen\", in the user's language), then write the full detail. Never say the same thing you write.
-- For work with tools: call say briefly when you start (\"Checking the hook now\") and, if the result is long, again before the final write-up.
+- If the answer needs code, tables, lists or more than ~3 sentences: first call the claudeTalk say tool with a real summary: 2-3 sentences that state the actual content (the conclusion, the key points, what you did or decided), then write the full detail. NEVER just point to the screen (\"I left it on screen\", \"see the result above\"): the user is listening, not reading, and that tells them nothing. Never repeat word for word what you write.
+- For work with tools: call say briefly when you start (\"Checking the hook now\") and, when you finish, say what you found or did, not that the result is on screen.
 - Never put code, paths, symbols or markdown in say.
 - If the user asks to stop talking or to turn talk mode off/on, or to change any claudeTalk setting (voice, speed, volume, silence, sensitivity, hotkey, Enter, wake word, speak only to spoken messages, screen share, glass, position, language), use the claudeTalk talk skill.
 ";
@@ -29,7 +29,7 @@ fn rules() -> String {
 
 const SPOKEN_RULE: &str = "- This message starts with a microphone mark: the user SPOKE it and Whisper transcribed it. Read it charitably: expect misheard words (e.g. Cloud for Claude), and stray phrases at the end that are really your own voice picked up by the mic; ignore those. Ask only if the meaning is truly unclear.\n";
 
-const REMINDER: &str = "claudeTalk talk mode is still ON: keep following its rules (user's language; short plain answers are read aloud; for long ones call say first with the gist; no code or markdown in say).\n";
+const REMINDER: &str = "claudeTalk talk mode is still ON: keep following its rules (user's language; short plain answers are read aloud; for long ones call say first with a real summary of the content, never just \"it's on screen\"; no code or markdown in say).\n";
 
 const SPOKEN_REMINDER: &str = "- Spoken message (mic mark): expect misheard words and stray echoes of your own voice at the end; ignore those.\n";
 
@@ -175,8 +175,34 @@ pub fn stop() {
     if fits {
         speak(&clean, &st);
     } else if !turn.spoke || work_after_say {
-        speak(&ct_core::lang::current().left_on_screen, &st);
+        // Read the start of the answer instead of "it's on screen": the user
+        // can pause or skip it from the capsule.
+        let lead = lead_sentences(&clean, MAX_SPOKEN_CHARS);
+        if lead.is_empty() {
+            speak(&ct_core::lang::current().left_on_screen, &st);
+        } else {
+            speak(&lead, &st);
+        }
     }
+}
+
+/// The first whole sentences of `text` that fit in `max` UTF-16 units; empty
+/// when even the first sentence does not fit.
+fn lead_sentences(text: &str, max: usize) -> String {
+    let (mut out, mut len, mut end) = (String::new(), 0usize, 0usize);
+    for (i, c) in text.char_indices() {
+        len += c.len_utf16();
+        if len > max {
+            break;
+        }
+        if matches!(c, '.' | '!' | '?' | '…') {
+            end = i + c.len_utf8();
+        }
+    }
+    if end > 0 {
+        out.push_str(text[..end].trim());
+    }
+    out
 }
 
 /// SessionStart: register the session and leave dictation running.
