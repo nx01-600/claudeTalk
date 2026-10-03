@@ -21,8 +21,18 @@ pub mod voice_link;
 pub const SPOKEN_MARK: &str = "\u{1F399}\u{FE0F} ";
 
 /// True when a prompt starts with the microphone mark, i.e. it was dictated.
+///
+/// Claude Code wraps a long paste in `<pasted_content id="..">` tags, so the
+/// mark can come after one or more opening tags.
 pub fn is_spoken(prompt: &str) -> bool {
-    prompt.trim_start().starts_with('\u{1F399}')
+    let mut rest = prompt.trim_start();
+    while rest.starts_with('<') {
+        match rest.find('>') {
+            Some(end) => rest = rest[end + 1..].trim_start(),
+            None => break,
+        }
+    }
+    rest.starts_with('\u{1F399}')
 }
 
 #[cfg(test)]
@@ -35,5 +45,7 @@ mod tests {
         assert!(is_spoken("  \u{1F399} hola"));
         assert!(!is_spoken("hola \u{1F399}"));
         assert!(!is_spoken(""));
+        assert!(is_spoken("\n\n<pasted_content id=\"79e7\">\n\u{1F399}\u{FE0F} hola\n</pasted_content id=\"79e7\">\n"));
+        assert!(!is_spoken("<pasted_content id=\"1\">\nhola \u{1F399}"));
     }
 }

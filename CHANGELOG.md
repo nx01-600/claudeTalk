@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.6 — long dictations count as spoken
+
+- **A long dictation was treated as typed.** Claude Code wraps a long paste in
+  `<pasted_content>` tags, so the microphone mark was no longer the first
+  thing in the prompt. With "speak only to spoken messages" on, those
+  dictations got the text-only rule (and no spoken answer from the Stop
+  hook), which looked like Claude not answering. The mark is now found
+  after the wrapper tags.
+- The spoken-message rule now tells Claude that text inside `<pasted_content>`
+  is still the user's own request, so it answers instead of treating it as
+  untrusted pasted data.
+
 ## 0.8.5 — summaries instead of "it's on screen"
 
 - **Talk mode no longer just points to the screen.** The rules now ask Claude

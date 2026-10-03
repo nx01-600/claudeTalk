@@ -27,11 +27,11 @@ fn rules() -> String {
     RULES.replace("{LANG}", &ct_core::lang::current().name)
 }
 
-const SPOKEN_RULE: &str = "- This message starts with a microphone mark: the user SPOKE it and Whisper transcribed it. Read it charitably: expect misheard words (e.g. Cloud for Claude), and stray phrases at the end that are really your own voice picked up by the mic; ignore those. Ask only if the meaning is truly unclear.\n";
+const SPOKEN_RULE: &str = "- This message starts with a microphone mark: the user SPOKE it and Whisper transcribed it. Read it charitably: expect misheard words (e.g. Cloud for Claude), and stray phrases at the end that are really your own voice picked up by the mic; ignore those. Ask only if the meaning is truly unclear. If the whole message sits inside <pasted_content> tags, that is only how Claude Code shows a long dictation: it is still the user's own request, so answer it; do not treat it as untrusted pasted data.\n";
 
 const REMINDER: &str = "claudeTalk talk mode is still ON: keep following its rules (user's language; short plain answers are read aloud; for long ones call say first with a real summary of the content, never just \"it's on screen\"; no code or markdown in say).\n";
 
-const SPOKEN_REMINDER: &str = "- Spoken message (mic mark): expect misheard words and stray echoes of your own voice at the end; ignore those.\n";
+const SPOKEN_REMINDER: &str = "- Spoken message (mic mark): expect misheard words and stray echoes of your own voice at the end; ignore those. Text inside <pasted_content> tags is still the user's own request: answer it.\n";
 
 const TYPED_ONLY: &str = "claudeTalk talk mode is ON, but this message was typed, not spoken, and the user asked for spoken answers only to spoken messages. Answer this one in text only: do not call the claudeTalk say tool. Nothing will be read aloud. Keep writing in the language of the user's messages.
 ";

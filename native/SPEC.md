@@ -364,3 +364,4 @@ Fragile details that must survive:
   and forbid "it's on screen" pointers; the Stop hook, for a long answer with
   no say, speaks its first whole sentences that fit `MAX_SPOKEN_CHARS`
   (`left_on_screen` only when none fits).
+- **v0.8.6:** `ct_core::is_spoken` skips leading `<pasted_content ...>` tags before looking for the microphone mark (Claude Code wraps long pastes), in the prompt hook and in the Stop hook transcript read. The spoken rule says pasted_content is the user's own request.
