@@ -126,6 +126,14 @@ fn main() {
         });
     }
 
+    // Only hooks and /talk maintain the "talk mode is on" flag, so a talking
+    // session that just closed would leave "Oye Claude" listening: re-check
+    // against the live sessions.
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        ct_core::sessions::update_talk_flag(&ct_core::procs::Snapshot::take());
+    });
+
     let hooks = {
         let (s1, s2, s3, s4, s5, s6) = (shared.clone(), shared.clone(), shared.clone(), shared.clone(), shared.clone(), shared.clone());
         wake::Hooks {

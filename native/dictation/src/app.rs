@@ -34,8 +34,13 @@ pub enum UiEvent {
 pub struct Tracked {
     pub hwnd: isize,
     pub topic: Option<String>,
-    pub pid: Option<u32>,
+    /// claude.exe of that tab and its start time (a bare pid can be reused).
+    pub pid: Option<(u32, u64)>,
 }
+
+/// A window whose title looked like Claude Code but is no terminal of it: not
+/// looked up again (that attaches to every console) until its title changes.
+static REJECTED: Mutex<Option<(isize, String)>> = Mutex::new(None);
 
 pub struct Shared {
     pub config: Mutex<Config>,
@@ -144,7 +149,7 @@ impl Shared {
             // front-most Claude Code window on screen
             let (h, topic) = inject::find_claude_window();
             println!("[wake] no tracked Claude session; using {topic:?}");
-            target = Tracked { hwnd: h as isize, topic, pid: target.pid };
+            target = Tracked { hwnd: h as isize, topic, pid: None };
         }
         let (sound, silence_ms, sens, auto_enter, lang) = {
             let c = self.config.lock().unwrap();
@@ -218,12 +223,16 @@ impl Shared {
     pub fn track_claude_window(self: &Arc<Self>) {
         let hwnd = inject::foreground();
         let Some(topic) = inject::claude_topic(hwnd) else { return };
+        if REJECTED.lock().unwrap().as_ref().is_some_and(|(h, t)| *h == hwnd as isize && *t == topic) {
+            return;
+        }
         {
             let t = self.tracked.lock().unwrap();
             if t.hwnd == hwnd as isize && t.topic.as_deref() == Some(topic.as_str()) {
                 return;
             }
         }
+        let previous = self.tracked.lock().unwrap().clone();
         {
             let mut t = self.tracked.lock().unwrap();
             t.hwnd = hwnd as isize;
@@ -234,10 +243,18 @@ impl Shared {
         }
         // Finding its claude.exe attaches to consoles: off the UI thread.
         let me = self.clone();
+        let window = hwnd as isize;
         std::thread::spawn(move || {
-            let pid = inject::console_pid(Some(&topic));
+            let (pid, consoles) = inject::console_lookup(&topic);
             let mut t = me.tracked.lock().unwrap();
-            if pid.is_some() && t.topic.as_deref() == Some(topic.as_str()) {
+            let current = t.hwnd == window && t.topic.as_deref() == Some(topic.as_str());
+            if consoles == 0 && current {
+                println!("[wake] {topic:?} is no Claude Code terminal; ignored");
+                *REJECTED.lock().unwrap() = Some((window, topic));
+                *t = previous;
+                return;
+            }
+            if pid.is_some() && current {
                 t.pid = pid;
             }
             println!("[wake] Claude session: {topic:?} (pid {:?})", t.pid);

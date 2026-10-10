@@ -128,6 +128,12 @@ fn wait_for_more(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, cut: HAND
     }
     let mut deadline = Instant::now() + IDLE_EXIT;
     loop {
+        // After the handle is armed (first pass) or re-armed (later ones): a
+        // phrase queued before that raised no notification.
+        if !queue::pending().is_empty() {
+            drain(audio, cut);
+            deadline = Instant::now() + IDLE_EXIT;
+        }
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
             break;
@@ -135,10 +141,6 @@ fn wait_for_more(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, cut: HAND
         let r = unsafe { WaitForSingleObject(h, left.as_millis() as u32) };
         if r != WAIT_OBJECT_0 {
             break;
-        }
-        if !queue::pending().is_empty() {
-            drain(audio, cut);
-            deadline = Instant::now() + IDLE_EXIT;
         }
         if unsafe { FindNextChangeNotification(h) } == 0 {
             break;
@@ -198,6 +200,14 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
     }
     let _ = fs::write(paths::player_pid_file(), std::process::id().to_string());
     let _ = fs::write(paths::player_session_file(), &item.session);
+    // A stop that arrived before the pid file existed deleted the item without
+    // cutting anyone: from here on a cut reaches us, so check once more.
+    if !file.exists() {
+        unsafe { ResetEvent(speaking_event()) };
+        let _ = fs::remove_file(paths::player_pid_file());
+        let _ = fs::remove_file(paths::player_session_file());
+        return;
+    }
 
     let (tx, rx) = channel::<Vec<u8>>();
     let cached = cache_path(voice, &rate, &item.text);

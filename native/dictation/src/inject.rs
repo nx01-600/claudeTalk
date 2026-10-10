@@ -490,8 +490,28 @@ pub fn claude_consoles() -> Vec<(u32, String)> {
 
 /// The claude.exe whose tab is titled `topic`; None when none or several are
 /// (two resumed sessions are both "Claude Code": guessing sends to the wrong one).
-pub fn console_pid(topic: Option<&str>) -> Option<u32> {
-    unique_topic(&claude_consoles(), topic?)
+/// (the claude.exe and its start time, how many consoles carry `topic`). Zero
+/// means the window is no Claude Code terminal (an editor or a browser tab
+/// whose title merely looks like one).
+pub fn console_lookup(topic: &str) -> (Option<(u32, u64)>, usize) {
+    let all = claude_consoles();
+    let n = all.iter().filter(|(_, t)| t == topic).count();
+    (unique_topic(&all, topic).and_then(|p| process_start(p).map(|s| (p, s))), n)
+}
+
+/// When `pid` started: a pid number alone can be reused by another process.
+pub fn process_start(pid: u32) -> Option<u64> {
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut c, mut e, mut k, mut u) = (z, z, z, z);
+        let ok = GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u);
+        CloseHandle(h);
+        (ok != 0).then(|| (c.dwHighDateTime as u64) << 32 | c.dwLowDateTime as u64)
+    }
 }
 
 fn unique_topic(sessions: &[(u32, String)], topic: &str) -> Option<u32> {
@@ -532,8 +552,10 @@ fn write_input(h: HANDLE, recs: &[INPUT_RECORD]) -> bool {
 /// Types into a Claude Code session with the focus untouched: `pid` if it's
 /// still open (Claude Code retitles sessions), else the one titled `topic`,
 /// else only when exactly one session is open.
-pub fn type_into_console(text: &str, topic: Option<&str>, press_enter: bool, pid: Option<u32>) -> bool {
+pub fn type_into_console(text: &str, topic: Option<&str>, press_enter: bool, pid: Option<(u32, u64)>) -> bool {
     let sessions = claude_consoles();
+    // the same number with another start time is another process
+    let pid = pid.filter(|&(p, started)| process_start(p) == Some(started)).map(|(p, _)| p);
     let matches: Vec<u32> = if pid.is_some_and(|p| sessions.iter().any(|(s, _)| *s == p)) {
         vec![pid.unwrap()]
     } else if let Some(t) = topic {
@@ -590,7 +612,7 @@ pub fn type_into_console(text: &str, topic: Option<&str>, press_enter: bool, pid
 /// Sends `text` to the Claude Code session `topic` in `hwnd`, wherever the
 /// user is: console first, then the visible route (invisible terminal,
 /// find the tab, paste, put everything back).
-pub fn paste_into_window(text: &str, hwnd: HWND, topic: Option<&str>, press_enter: bool, pid: Option<u32>) -> bool {
+pub fn paste_into_window(text: &str, hwnd: HWND, topic: Option<&str>, press_enter: bool, pid: Option<(u32, u64)>) -> bool {
     if !set_clipboard(text) {
         return false;
     }

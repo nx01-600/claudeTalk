@@ -29,6 +29,30 @@
   is pasted (it used to paste, and send, whatever was there before).
 - **Headless `claude -p` children** no longer make a session's title look
   shared. Session files of sessions that are still open are never pruned.
+- **Windows that only look like Claude Code.** An editor with an unsaved
+  marker, or a browser tab titled "Claude Code docs", was tracked as a
+  session and "Oye Claude" could paste into it. A tracked window must now
+  have a real Claude Code console behind its title.
+- **A reused process number** could send the text to another session. The
+  tracked claude.exe is now checked by its start time as well.
+- **Speech queue races.** A phrase queued at the wrong instant could wait up
+  to 2 minutes, and one from a session you had just silenced could still
+  play. Both are closed.
+- **"Oye Claude" kept listening** after the last talking session closed. The
+  dictation app now re-checks the live sessions every 5 seconds.
+
+- **Windows that only look like Claude Code.** An editor with an unsaved
+  marker, or a browser tab titled "Claude Code docs", was tracked as a
+  session and "Oye Claude" could paste into it. A tracked window must now
+  have a real Claude Code console behind its title.
+- **A reused process number** could send the text to another session. The
+  tracked claude.exe is now checked by its start time as well.
+- **Speech queue races.** A phrase queued at the wrong instant could wait up
+  to 2 minutes, and one from a session you had just silenced could still
+  play. Both are closed.
+- **"Oye Claude" kept listening** after the last talking session closed. The
+  dictation app now re-checks the live sessions every 5 seconds.
+
 
 
 
