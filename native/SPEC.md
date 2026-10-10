@@ -365,3 +365,4 @@ Fragile details that must survive:
   no say, speaks its first whole sentences that fit `MAX_SPOKEN_CHARS`
   (`left_on_screen` only when none fits).
 - **v0.8.6:** `ct_core::is_spoken` skips leading `<pasted_content ...>` tags before looking for the microphone mark (Claude Code wraps long pastes), in the prompt hook and in the Stop hook transcript read. The spoken rule says pasted_content is the user's own request.
+- **v0.8.7:** the Enter of "send with Enter" waits `base + 1 ms per 8 characters` (max +800 ms) after the paste/typing, and is skipped (logged) when the foreground window is no longer the target. Failed Enters are logged.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.7 — "Send with Enter" is more reliable
+
+- **Enter could be lost after a long dictation.** The Enter went out a fixed
+  80 ms (250 ms for the console route) after the text, which is too early
+  when Claude Code is still absorbing a long paste. The wait now grows with
+  the length of the text (up to 800 ms more).
+- **Enter no longer goes to the wrong window.** If the focus changed after
+  the paste, the Enter is skipped and the log says so.
+- A rejected Enter now shows up in `%TEMP%\claudetalk-dictation.log`.
+
 ## 0.8.6 — long dictations count as spoken
 
 - **A long dictation was treated as typed.** Claude Code wraps a long paste in

@@ -218,10 +218,24 @@ pub fn paste_if_focus_unchanged(text: &str, expected: HWND, press_enter: bool) -
         println!("[diag] SendInput rejected events (GetLastError={})", unsafe { GetLastError() });
     }
     if sent == 4 && press_enter {
-        sleep(ENTER_DELAY);
-        send_keys(&[(VK_RETURN_, false), (VK_RETURN_, true)]);
+        // a long paste takes Claude Code longer to absorb; an early Enter is lost
+        sleep(enter_delay(ENTER_DELAY, text));
+        if foreground() == expected {
+            let n = send_keys(&[(VK_RETURN_, false), (VK_RETURN_, true)]);
+            if n < 2 {
+                println!("[diag] Enter rejected by SendInput ({n}/2 events)");
+            }
+        } else {
+            println!("[diag] focus changed before Enter; not sent");
+        }
     }
     sent == 4
+}
+
+/// `base` plus 1 ms per 8 characters (capped at 800 ms): the longer the text,
+/// the longer Claude Code needs before it takes an Enter as "submit".
+fn enter_delay(base: Duration, text: &str) -> Duration {
+    base + Duration::from_millis((text.chars().count() as u64 / 8).min(800))
 }
 
 // --- Claude Code windows ------------------------------------------------------
@@ -538,8 +552,10 @@ pub fn type_into_console(text: &str, topic: Option<&str>, press_enter: bool, pid
     if !ok {
         println!("[diag] console: WriteConsoleInput failed (GetLastError={})", unsafe { GetLastError() });
     } else if press_enter {
-        sleep(CONSOLE_ENTER_DELAY);
-        write_input(h, &key_records(&[b'\r' as u16], VK_RETURN_, 0x1C));
+        sleep(enter_delay(CONSOLE_ENTER_DELAY, text));
+        if !write_input(h, &key_records(&[b'\r' as u16], VK_RETURN_, 0x1C)) {
+            println!("[diag] console: Enter failed (GetLastError={})", unsafe { GetLastError() });
+        }
     }
     unsafe { CloseHandle(h) };
     drop(a);
@@ -607,6 +623,14 @@ fn paste_into(text: &str, hwnd: HWND, topic: &str, previous: HWND, press_enter: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enter_waits_longer_for_long_text() {
+        let short = enter_delay(ENTER_DELAY, "hola");
+        let long = enter_delay(ENTER_DELAY, &"a".repeat(4000));
+        assert!(long > short + Duration::from_millis(400));
+        assert_eq!(enter_delay(ENTER_DELAY, &"a".repeat(100_000)), ENTER_DELAY + Duration::from_millis(800));
+    }
 
     #[test]
     fn topics() {
