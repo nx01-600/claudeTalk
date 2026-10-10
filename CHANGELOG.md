@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.7 — "Send with Enter" is more reliable
+## 0.8.7 — more reliable Enter and routing, status line badge
 
 - **Enter could be lost after a long dictation.** The Enter went out a fixed
   80 ms (250 ms for the console route) after the text, which is too early
@@ -9,6 +9,28 @@
 - **Enter no longer goes to the wrong window.** If the focus changed after
   the paste, the Enter is skipped and the log says so.
 - A rejected Enter now shows up in `%TEMP%\claudetalk-dictation.log`.
+- **Dictation could go to the wrong session.** The tracker kept the previous
+  tab's claude.exe when it could not identify the new tab, so a wake-phrase
+  dictation was typed into the session you had just left. It now forgets it,
+  and takes the tab in front at the moment you speak.
+- **Two sessions with the same title** (resumed sessions are both "Claude
+  Code") were told apart by guessing. claudeTalk no longer guesses: it leaves
+  the text on the clipboard and logs why.
+- **A reopened session with talk mode still on** now picks a free voice at
+  start, so it does not share one with a session that is talking.
+- **Status line badge.** On first run Claude offers a green "Talk" badge on
+  Claude Code's status line (`toggle statusline on|off`). It keeps your
+  current status line, only appends the badge, and follows the plugin when it
+  updates.
+- **Switching tabs during a dictation.** A terminal keeps its window when you
+  change tab, so the text could land in the tab you moved to. The paste now
+  checks the tab (not just the window) right before pasting.
+- **Clipboard busy.** If the text could not be put on the clipboard, nothing
+  is pasted (it used to paste, and send, whatever was there before).
+- **Headless `claude -p` children** no longer make a session's title look
+  shared. Session files of sessions that are still open are never pruned.
+
+
 
 ## 0.8.6 — long dictations count as spoken
 

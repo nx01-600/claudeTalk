@@ -215,6 +215,11 @@ pub fn session_start() {
     }
     if let Some(sid) = s(&p, "session_id") {
         sessions::register(sid, claude);
+        // A session reopened with talk mode still on may share its old voice
+        // with a session that is talking now: pick again among the free ones.
+        if sessions::get_state(Some(sid)).enabled {
+            sessions::enable(sid);
+        }
         // A compacted, cleared or resumed conversation lost the rules.
         if matches!(s(&p, "source"), Some("compact" | "clear" | "resume")) {
             ct_core::lock::with_session_lock(|| {
@@ -231,8 +236,14 @@ pub fn session_start() {
     crate::daemon::ensure();
     // Leftovers of an older version (Python venv, old plugin copies): let
     // Claude offer the cleanup. Costs tokens only while they exist.
+    crate::statusline::follow_exe();
+    let mut notices = Vec::new();
     if crate::cleanup::leftovers_present() {
-        let out = json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": crate::cleanup::session_notice()}});
+        notices.push(crate::cleanup::session_notice());
+    }
+    notices.extend(crate::statusline::ask_notice());
+    if !notices.is_empty() {
+        let out = json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": notices.join("\n\n")}});
         println!("{out}");
     }
 }

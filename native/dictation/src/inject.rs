@@ -183,23 +183,34 @@ pub fn set_clipboard(text: &str) -> bool {
             return false;
         }
         EmptyClipboard();
-        SetClipboardData(CF_UNICODETEXT_, h as HANDLE);
+        let ok = !SetClipboardData(CF_UNICODETEXT_, h as HANDLE).is_null();
         CloseClipboard();
+        if !ok {
+            println!("[clipboard] SetClipboardData failed, text lost");
+            GlobalFree(h);
+        }
+        return ok;
     }
-    true
 }
 
 /// Pastes only if the window focused when recording started is still in
 /// front. The text is left on the clipboard either way.
-pub fn paste_if_focus_unchanged(text: &str, expected: HWND, press_enter: bool) -> bool {
-    set_clipboard(text);
+pub fn paste_if_focus_unchanged(text: &str, expected: HWND, topic: Option<&str>, press_enter: bool) -> bool {
+    if !set_clipboard(text) {
+        return false; // Ctrl+V would paste (and Enter send) whatever was there before
+    }
     let current = foreground();
-    if current != expected {
+    // a terminal keeps its window when you switch tabs: the tab must be the same
+    if current != expected || topic.is_some_and(|t| claude_topic(current).as_deref() != Some(t)) {
         println!("[diag] focus changed: expected {} / current {}", describe(expected), describe(current));
         return false;
     }
     wait_modifiers_released();
     sleep(PASTE_DELAY_BEFORE);
+    if foreground() != expected || topic.is_some_and(|t| claude_topic(expected).as_deref() != Some(t)) {
+        println!("[diag] focus or tab changed while waiting; not pasted");
+        return false;
+    }
     let mods = format!(
         "shift={} ctrl={} alt={} win={}",
         key_down(VK_SHIFT_),
@@ -422,6 +433,8 @@ fn claude_code_pids() -> Vec<u32> {
         .filter(|(_, p)| p.exe == "claude.exe")
         .map(|(&pid, _)| pid)
         .filter(|&pid| !process_path(pid).to_lowercase().contains("\\windowsapps\\"))
+        // `claude -p` children share the parent's console title
+        .filter(|&pid| !ct_core::procs::command_line(pid).is_some_and(|c| ct_core::procs::is_headless_cmdline(&c)))
         .collect()
 }
 
@@ -475,9 +488,18 @@ pub fn claude_consoles() -> Vec<(u32, String)> {
     found
 }
 
+/// The claude.exe whose tab is titled `topic`; None when none or several are
+/// (two resumed sessions are both "Claude Code": guessing sends to the wrong one).
 pub fn console_pid(topic: Option<&str>) -> Option<u32> {
-    let topic = topic?;
-    claude_consoles().into_iter().find(|(_, t)| t == topic).map(|(p, _)| p)
+    unique_topic(&claude_consoles(), topic?)
+}
+
+fn unique_topic(sessions: &[(u32, String)], topic: &str) -> Option<u32> {
+    let mut hits = sessions.iter().filter(|(_, t)| t == topic);
+    match (hits.next(), hits.next()) {
+        (Some((p, _)), None) => Some(*p),
+        _ => None,
+    }
 }
 
 fn key_records(units: &[u16], vk: u16, scan: u16) -> Vec<INPUT_RECORD> {
@@ -515,7 +537,7 @@ pub fn type_into_console(text: &str, topic: Option<&str>, press_enter: bool, pid
     let matches: Vec<u32> = if pid.is_some_and(|p| sessions.iter().any(|(s, _)| *s == p)) {
         vec![pid.unwrap()]
     } else if let Some(t) = topic {
-        sessions.iter().filter(|(_, s)| s == t).map(|(p, _)| *p).collect()
+        unique_topic(&sessions, t).into_iter().collect()
     } else {
         sessions.iter().map(|(p, _)| *p).collect()
     };
@@ -569,7 +591,9 @@ pub fn type_into_console(text: &str, topic: Option<&str>, press_enter: bool, pid
 /// user is: console first, then the visible route (invisible terminal,
 /// find the tab, paste, put everything back).
 pub fn paste_into_window(text: &str, hwnd: HWND, topic: Option<&str>, press_enter: bool, pid: Option<u32>) -> bool {
-    set_clipboard(text);
+    if !set_clipboard(text) {
+        return false;
+    }
     let previous = foreground();
     let in_front = !hwnd.is_null() && previous == hwnd && claude_topic(hwnd).as_deref() == topic;
     if !in_front && type_into_console(text, topic, press_enter, pid) {
@@ -579,6 +603,10 @@ pub fn paste_into_window(text: &str, hwnd: HWND, topic: Option<&str>, press_ente
         println!("[diag] wake: no Claude Code window seen yet; text left on the clipboard");
         return false;
     };
+    if !in_front && claude_consoles().iter().filter(|(_, t)| t == topic).count() > 1 {
+        println!("[diag] wake: several sessions are titled {topic:?}; not guessing which one. Text left on the clipboard (rename the sessions with /rename)");
+        return false;
+    }
     if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
         println!("[diag] wake: no Claude Code window seen yet; text left on the clipboard");
         return false;
@@ -606,7 +634,7 @@ fn paste_into(text: &str, hwnd: HWND, topic: &str, previous: HWND, press_enter: 
             }
         }
     }
-    let ok = paste_if_focus_unchanged(text, hwnd, press_enter);
+    let ok = paste_if_focus_unchanged(text, hwnd, Some(topic), press_enter);
     sleep(ENTER_DELAY);
     for _ in 0..moved {
         if foreground() != hwnd {
@@ -623,6 +651,14 @@ fn paste_into(text: &str, hwnd: HWND, topic: &str, previous: HWND, press_enter: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_shared_by_two_sessions_is_not_guessed() {
+        let s = vec![(1, "Claude Code".to_string()), (2, "Claude Code".to_string()), (3, "otro".to_string())];
+        assert_eq!(unique_topic(&s, "Claude Code"), None);
+        assert_eq!(unique_topic(&s, "otro"), Some(3));
+        assert_eq!(unique_topic(&s, "nada"), None);
+    }
 
     #[test]
     fn enter_waits_longer_for_long_text() {

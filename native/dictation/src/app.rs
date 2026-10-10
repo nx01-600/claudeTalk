@@ -122,6 +122,7 @@ impl Shared {
 
     fn worker(self: Arc<Self>, woken: bool) {
         let hwnd = inject::foreground();
+        let start_topic = inject::claude_topic(hwnd);
         // Started on the desktop or taskbar: nothing there takes text, so the
         // dictation goes to the last Claude session, like "Oye Claude".
         let to_claude = woken || inject::is_shell_surface(hwnd);
@@ -129,6 +130,15 @@ impl Shared {
             println!("[target] focus is on the desktop/taskbar; sending to the last Claude session");
         }
         let mut target = self.tracked.lock().unwrap().clone();
+        // The tracker runs every 500 ms: if a Claude tab is in front right now,
+        // that is the session the user means, not what was tracked a moment ago.
+        if to_claude {
+            if let Some(topic) = inject::claude_topic(hwnd) {
+                if target.hwnd != hwnd as isize || target.topic.as_deref() != Some(topic.as_str()) {
+                    target = Tracked { hwnd: hwnd as isize, topic: Some(topic), pid: None };
+                }
+            }
+        }
         if to_claude && inject::claude_topic(target.hwnd as HWND).is_none() {
             // never seen in front (or that window is gone): take the
             // front-most Claude Code window on screen
@@ -196,7 +206,7 @@ impl Shared {
             let ok = if to_claude {
                 inject::paste_into_window(&text, target.hwnd as HWND, target.topic.as_deref(), auto_enter, target.pid)
             } else {
-                inject::paste_if_focus_unchanged(&text, hwnd, auto_enter)
+                inject::paste_if_focus_unchanged(&text, hwnd, start_topic.as_deref(), auto_enter)
             };
             self.post(UiEvent::Finished(ok));
             println!("{}", if ok { "[pasted]" } else { "[not pasted] text left in the clipboard (see [diag] above)" });
@@ -218,6 +228,9 @@ impl Shared {
             let mut t = self.tracked.lock().unwrap();
             t.hwnd = hwnd as isize;
             t.topic = Some(topic.clone());
+            // The old pid belonged to the previous tab: if the lookup below
+            // fails, typing into it would land in the wrong session.
+            t.pid = None;
         }
         // Finding its claude.exe attaches to consoles: off the UI thread.
         let me = self.clone();

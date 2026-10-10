@@ -9,6 +9,7 @@
 //!   claudetalk cleanup [--yes]                  remove what older versions left
 //!   claudetalk fetch-dictation [--start]        download the dictation app for this version
 //!   claudetalk speaker                          speech queue drainer (internal)
+//!   claudetalk statusline                       status line command with the Talk badge
 
 mod cleanup;
 mod daemon;
@@ -17,6 +18,7 @@ mod fetch;
 mod hooks;
 mod mcp;
 mod speaker;
+mod statusline;
 mod toggle;
 
 /// Models the dictation daemon loads (kept by `cleanup`).
@@ -37,6 +39,7 @@ fn main() {
         "fetch-dictation" => std::process::exit(daemon::fetch_command(arg(1) == "--start")),
         "cleanup" => std::process::exit(cleanup::run(arg(1) == "--yes")),
         "speaker" => speaker::run(),
+        "statusline" => statusline::render(),
         "toggle" => {
             let (out, code) = toggle::run(&args[1..]);
             println!("{out}");

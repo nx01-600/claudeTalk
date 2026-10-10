@@ -34,6 +34,7 @@ const HELP: &str = r#"Settings (set <setting> <value>):
   glass        0 to 100   (glass effect intensity)
   position     bottom | top   (also forgets a dragged spot)
   drag         on | off   (the pill comes back where you last dragged it)
+  statusline   on | off   (as an action: `statusline on`; a Talk badge on Claude Code's status line)
   dictation    auto | same   (auto = Whisper detects the language; same = claudeTalk's language)
 
 Languages beyond the built-in ones (see docs/LANGUAGES.md):
@@ -311,9 +312,15 @@ pub fn run(args: &[String]) -> (String, i32) {
     let mut action = plain(args.first().map(String::as_str).unwrap_or(""));
     let mut value = args.get(1).cloned().unwrap_or_default();
     let mut extra = args.get(2..).map(|a| a.join(" ")).unwrap_or_default();
-    const ACTIONS: [&str; 13] = ["on", "off", "toggle", "status", "stop", "settings", "set", "voice", "rate", "volume", "silence", "template", "pack"];
+    const ACTIONS: [&str; 14] = ["on", "off", "toggle", "status", "stop", "settings", "set", "voice", "rate", "volume", "silence", "template", "pack", "statusline"];
     if !ACTIONS.contains(&action.as_str()) {
-        return (format!("claudeTalk: unknown action '{action}'. Use on, off, toggle, status, stop, settings or set.\n{}", help()), 1);
+        return (format!("claudeTalk: unknown action '{action}'. Use on, off, toggle, status, stop, settings, set or statusline.\n{}", help()), 1);
+    }
+    if action == "statusline" {
+        return match to_bool(&value) {
+            Ok(on) => crate::statusline::install(on),
+            Err(_) => ("claudeTalk: usage: statusline on|off (a \"Talk\" badge on Claude Code's status line).".into(), 1),
+        };
     }
     if action == "template" {
         let Some(code) = language_code(&value) else {

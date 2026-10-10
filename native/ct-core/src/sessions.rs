@@ -99,16 +99,17 @@ pub fn register(sid: &str, claude: u32) {
         }
         live.insert(claude, sid.to_string());
         write_live(&live);
-        prune_old_sessions();
+        prune_old_sessions(&live);
     });
 }
 
-fn prune_old_sessions() {
+fn prune_old_sessions(live: &BTreeMap<u32, String>) {
     let Ok(dir) = std::fs::read_dir(paths::sessions_dir()) else { return };
     let cutoff = SystemTime::now() - Duration::from_secs(30 * 86_400);
     for e in dir.flatten() {
         let old = e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t < cutoff);
-        if old && e.path().extension().is_some_and(|x| x == "json") {
+        let in_use = live.values().any(|sid| session_file(sid) == e.path());
+        if old && !in_use && e.path().extension().is_some_and(|x| x == "json") {
             let _ = std::fs::remove_file(e.path());
         }
     }
