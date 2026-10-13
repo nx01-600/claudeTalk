@@ -14,6 +14,7 @@
 mod cleanup;
 mod daemon;
 mod edge;
+mod edge_drm;
 mod fetch;
 mod hooks;
 mod mcp;

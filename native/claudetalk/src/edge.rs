@@ -4,9 +4,13 @@
 //!
 //! If Microsoft rotates the accepted Edge version, set `edge_version` in
 //! dictation.json (e.g. "143.0.3650.75") without waiting for a new build.
+//! The Sec-MS-GEC token is in edge_drm.rs (v2 since edge-tts 7.3: the old
+//! SHA-256 one gets a 403).
 
+use crate::edge_drm::sec_ms_gec;
 use sha2::{Digest, Sha256};
 use std::net::TcpStream;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tungstenite::client::IntoClientRequest;
@@ -29,13 +33,32 @@ fn edge_version() -> String {
         .to_string()
 }
 
-/// Sec-MS-GEC: SHA-256 of the Windows file time rounded down to 5 minutes
-/// plus the client token, uppercase hex.
-fn sec_ms_gec(unix_secs: u64) -> String {
-    let win = unix_secs + 11_644_473_600;
-    let ticks = (win - win % 300) as u128 * 10_000_000;
-    let digest = Sha256::digest(format!("{ticks}{TRUSTED_CLIENT_TOKEN}").as_bytes());
-    digest.iter().map(|b| format!("{b:02X}")).collect()
+/// Seconds to add to this computer's clock to match Microsoft's: the token
+/// depends on the time, and a 403 carries the server's `Date`.
+static CLOCK_SKEW: AtomicI64 = AtomicI64::new(0);
+
+fn unix_now() -> u64 {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+    (now + CLOCK_SKEW.load(Ordering::Relaxed)).max(0) as u64
+}
+
+/// "Tue, 13 Oct 2026 23:00:00 GMT" to unix seconds.
+fn parse_http_date(s: &str) -> Option<i64> {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let p: Vec<&str> = s.split_whitespace().collect();
+    let (day, month, year) = (p.get(1)?.parse::<i64>().ok()?, { let m = *p.get(2)?; MONTHS.iter().position(|x| *x == m)? as i64 + 1 }, p.get(3)?.parse::<i64>().ok()?);
+    let hms: Vec<i64> = p.get(4)?.split(':').filter_map(|x| x.parse().ok()).collect();
+    if hms.len() != 3 {
+        return None;
+    }
+    // days from civil (Howard Hinnant)
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + hms[0] * 3_600 + hms[1] * 60 + hms[2])
 }
 
 fn random_hex(bytes: usize) -> String {
@@ -114,9 +137,9 @@ fn split_chunks(text: &str) -> Vec<String> {
 fn connect() -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
     let version = edge_version();
     let major = version.split('.').next().unwrap_or("143").to_string();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let now = unix_now();
     let url = format!(
-        "{WSS_URL}?TrustedClientToken={TRUSTED_CLIENT_TOKEN}&ConnectionId={}&Sec-MS-GEC={}&Sec-MS-GEC-Version=1-{version}",
+        "{WSS_URL}?TrustedClientToken={TRUSTED_CLIENT_TOKEN}&ConnectionId={}&Sec-MS-GEC={}&Sec-MS-GEC-Version=2-{version}",
         random_hex(16),
         sec_ms_gec(now)
     );
@@ -139,7 +162,18 @@ fn connect() -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
             h.insert(k, v);
         }
     }
-    let (ws, _) = tungstenite::connect(req).map_err(|e| e.to_string())?;
+    let (ws, _) = tungstenite::connect(req).map_err(|e| {
+        // 403: usually a wrong clock. Learn the server's, and the retry in
+        // `synthesize` uses it.
+        if let tungstenite::Error::Http(resp) = &e {
+            let date = resp.headers().get("date").and_then(|v| v.to_str().ok()).and_then(parse_http_date);
+            if let Some(server) = date {
+                let local = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+                CLOCK_SKEW.store(server - local, Ordering::Relaxed);
+            }
+        }
+        e.to_string()
+    })?;
     let tcp = match ws.get_ref() {
         MaybeTlsStream::NativeTls(s) => Some(s.get_ref()),
         MaybeTlsStream::Plain(s) => Some(s),
@@ -155,7 +189,12 @@ fn connect() -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
 /// Synthesizes `text` and sends the mp3 bytes to `out` as they arrive.
 /// Returns an error if nothing could be synthesized.
 pub fn synthesize(text: &str, voice: &str, rate: &str, out: &Sender<Vec<u8>>) -> Result<(), String> {
-    let mut ws = connect()?;
+    let mut ws = match connect() {
+        Ok(ws) => ws,
+        // a rejected token with a wrong clock: connect() just learned the skew
+        Err(_) if CLOCK_SKEW.load(Ordering::Relaxed).abs() > 60 => connect()?,
+        Err(e) => return Err(e),
+    };
     ws.send(Message::text(format!(
         "X-Timestamp:{}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n\
          {{\"context\":{{\"synthesis\":{{\"audio\":{{\"metadataoptions\":{{\"sentenceBoundaryEnabled\":\"true\",\"wordBoundaryEnabled\":\"false\"}},\
@@ -220,9 +259,9 @@ pub fn print_voices(code: &str) -> i32 {
         eprintln!("usage: claudetalk voices CODE   (a language code like fr, pt, de)");
         return 2;
     };
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let now = unix_now();
     let url = format!(
-        "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken={TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC={}&Sec-MS-GEC-Version=1-{}",
+        "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken={TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC={}&Sec-MS-GEC-Version=2-{}",
         sec_ms_gec(now),
         edge_version()
     );
@@ -254,17 +293,22 @@ pub fn print_voices(code: &str) -> i32 {
 mod tests {
     use super::*;
 
+    /// Talks to Microsoft: `cargo test -- --ignored live_synthesis`.
     #[test]
-    fn gec_matches_edge_tts() {
-        // edge-tts DRM.generate_sec_ms_gec() for unix time 1790000000.
-        let win: u128 = 1_790_000_000 + 11_644_473_600;
-        let ticks = (win - win % 300) * 10_000_000;
-        let expect: String = Sha256::digest(format!("{ticks}{TRUSTED_CLIENT_TOKEN}").as_bytes())
-            .iter()
-            .map(|b| format!("{b:02X}"))
-            .collect();
-        assert_eq!(sec_ms_gec(1_790_000_000), expect);
-        assert_eq!(sec_ms_gec(1_790_000_000).len(), 64);
+    #[ignore]
+    fn live_synthesis() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        synthesize("Hola, prueba.", "es-CO-SalomeNeural", "+0%", &tx).expect("synthesis");
+        drop(tx);
+        let bytes: usize = rx.iter().map(|c| c.len()).sum();
+        assert!(bytes > 1000, "only {bytes} bytes of audio");
+    }
+
+    #[test]
+    fn http_date() {
+        assert_eq!(parse_http_date("Thu, 01 Jan 1970 00:00:10 GMT"), Some(10));
+        assert_eq!(parse_http_date("Tue, 13 Oct 2026 23:00:00 GMT"), Some(1_791_932_400));
+        assert_eq!(parse_http_date("garbage"), None);
     }
 
     #[test]

@@ -1,7 +1,12 @@
 # Changelog
 
-## 0.8.7 — more reliable Enter and routing, status line badge
+## 0.8.7 — voice works again, more reliable Enter and routing, status line badge
 
+- **No voice at all (403 Forbidden).** Microsoft changed the token the Edge
+  read-aloud service checks (Sec-MS-GEC, now "version 2"), so every phrase was
+  refused and nothing was spoken. claudeTalk now sends the new token (ported
+  from edge-tts 7.3, same output as the Python original) and, if the 403 is
+  caused by a wrong clock, learns the server's time and retries once.
 - **Enter could be lost after a long dictation.** The Enter went out a fixed
   80 ms (250 ms for the console route) after the text, which is too early
   when Claude Code is still absorbing a long paste. The wait now grows with
