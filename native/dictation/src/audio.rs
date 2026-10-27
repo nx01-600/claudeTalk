@@ -2,9 +2,9 @@
 //! automatic cutoff on silence, and the noise gate (voice-input/audio.py).
 //!
 //! Silence is judged against two references at once: the noise floor (the
-//! quietest block of the last FLOOR_WINDOW_MS, so it follows the room; a
-//! mic warming up reads near zero for its first few hundred ms, and a floor
-//! fixed from those blocks made steady room noise count as speech forever),
+//! quietest block of the last FLOOR_WINDOW_MS after WARMUP_MS, so it follows
+//! the room; a floor fixed from the warming mic's near-zero blocks made
+//! steady room noise count as speech forever),
 //! and the typical speech level
 //! heard so far in this recording (the user's own voice, closest to the
 //! mic). Anything below `speech * peak_ratio` counts as silence even above
@@ -20,7 +20,9 @@ use std::time::{Duration, Instant};
 pub const SAMPLE_RATE: usize = 16_000;
 pub const BLOCK_MS: usize = 30;
 pub const BLOCK: usize = SAMPLE_RATE * BLOCK_MS / 1000;
-const CALIBRATION_MS: f64 = 300.0;
+/// A mic just opened reads near zero while it warms up (~400 ms measured);
+/// those blocks are recorded but neither judged nor used for the floor.
+const WARMUP_MS: usize = 450;
 const MIN_SPEECH_MS: usize = 400;
 const MAX_RECORDING_S: f64 = 300.0;
 const SPEECH_PERCENTILE: f64 = 75.0;
@@ -229,14 +231,14 @@ pub fn record_until_silence(
         let Some(block) = next_block() else { break };
         let level = rms(&block);
         pcm.extend_from_slice(&block);
+        if pcm.len() * 1000 / SAMPLE_RATE <= WARMUP_MS {
+            on_level(0.0);
+            continue;
+        }
         if recent.len() == FLOOR_WINDOW_MS / BLOCK_MS {
             recent.pop_front();
         }
         recent.push_back(level);
-        if (pcm.len() * 1000 / SAMPLE_RATE) < CALIBRATION_MS as usize || recent.len() < 2 {
-            on_level(0.0);
-            continue;
-        }
         let nf = recent.iter().cloned().fold(f32::MAX, f32::min).max(1e-4);
         let floor_threshold = nf * p.silence_margin;
         if level > floor_threshold {
@@ -458,14 +460,19 @@ mod tests {
         // measured on a real mic: ~0.0005 while it warms up, then room
         // noise between 0.0035 and 0.0107
         let noise = |i: usize| [0.006f32, 0.0035, 0.0107, 0.005, 0.008][i % 5];
-        let mut blocks: Vec<f32> = vec![0.0005; 12];
+        let mut blocks: Vec<f32> = vec![0.0005; 15];
+        blocks.extend((0..30).map(noise)); // room noise before speaking
         blocks.extend((0..30).map(|_| 0.1)); // ~1 s of speech
         blocks.extend((0..400).map(noise)); // 12 s of room noise
         let total = blocks.len();
         let mut it = blocks.into_iter().map(|l| vec![l; BLOCK]);
         let p = RecordParams { silence_hold_ms: 2000, silence_margin: 3.5, peak_ratio: 0.12, start_timeout_ms: None };
-        let pcm = record_until_silence(|| it.next(), &p, || false, |_| {}).ok().unwrap();
+        let mut bars = Vec::new();
+        let pcm = record_until_silence(|| it.next(), &p, || false, |l| bars.push(l)).ok().unwrap();
         assert!(pcm.len() < total * BLOCK / 2, "stopped after {} of {total} blocks", pcm.len() / BLOCK);
+        // the bars stay low over the room noise before speech
+        let quiet = bars[..45].iter().cloned().fold(0.0f32, f32::max);
+        assert!(quiet < 0.5, "bars at {quiet} over room noise");
     }
 
     #[test]
