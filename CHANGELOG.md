@@ -2,6 +2,11 @@
 
 ## 0.8.7 — voice works again, more reliable Enter and routing, status line badge
 
+- **Dictation never stopped on silence.** The mic's noise level was measured
+  in the first 300 ms, while the mic is still warming up and reads almost
+  zero. Normal room noise then counted as speech, so the recording ran on
+  and the message was never sent. The noise level now follows the room (the
+  quietest moment of the last 1.5 s).
 - **No voice at all (403 Forbidden).** Microsoft changed the token the Edge
   read-aloud service checks (Sec-MS-GEC, now "version 2"), so every phrase was
   refused and nothing was spoken. claudeTalk now sends the new token (ported

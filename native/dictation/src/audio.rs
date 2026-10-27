@@ -1,8 +1,11 @@
 //! Microphone capture in 30 ms blocks at 16 kHz mono, recording with an
 //! automatic cutoff on silence, and the noise gate (voice-input/audio.py).
 //!
-//! Silence is judged against two references at once: the noise floor
-//! measured during the first CALIBRATION_MS, and the typical speech level
+//! Silence is judged against two references at once: the noise floor (the
+//! quietest block of the last FLOOR_WINDOW_MS, so it follows the room; a
+//! mic warming up reads near zero for its first few hundred ms, and a floor
+//! fixed from those blocks made steady room noise count as speech forever),
+//! and the typical speech level
 //! heard so far in this recording (the user's own voice, closest to the
 //! mic). Anything below `speech * peak_ratio` counts as silence even above
 //! the floor: that keeps voices coming out of the speakers (a call, echo)
@@ -21,6 +24,7 @@ const CALIBRATION_MS: f64 = 300.0;
 const MIN_SPEECH_MS: usize = 400;
 const MAX_RECORDING_S: f64 = 300.0;
 const SPEECH_PERCENTILE: f64 = 75.0;
+const FLOOR_WINDOW_MS: usize = 1500;
 
 pub struct Cancelled;
 
@@ -203,14 +207,13 @@ pub struct RecordParams {
 /// Records until sustained silence. `should_cancel` is polled every block
 /// (second hotkey tap, Esc); `on_level` gets 0..1 for the level bars.
 pub fn record_until_silence(
-    mic: &Mic,
+    mut next_block: impl FnMut() -> Option<Vec<f32>>,
     p: &RecordParams,
     mut should_cancel: impl FnMut() -> bool,
     mut on_level: impl FnMut(f32),
 ) -> Result<Vec<f32>, Cancelled> {
     let mut pcm: Vec<f32> = Vec::new();
-    let mut floor_samples: Vec<f32> = Vec::new();
-    let mut floor: Option<f32> = None;
+    let mut recent: std::collections::VecDeque<f32> = std::collections::VecDeque::new();
     let mut loud: Vec<f32> = Vec::new();
     let mut peak = 0.0f32;
     let (mut silence_ms, mut speech_ms) = (0usize, 0usize);
@@ -223,17 +226,18 @@ pub fn record_until_silence(
         if elapsed > MAX_RECORDING_S * 1000.0 {
             break;
         }
-        let Some(block) = mic.read() else { break };
+        let Some(block) = next_block() else { break };
         let level = rms(&block);
         pcm.extend_from_slice(&block);
-        if elapsed < CALIBRATION_MS || floor_samples.is_empty() {
-            // Keeps collecting past CALIBRATION_MS if the first block was
-            // late (cold device): a mean over nothing would be NaN.
-            floor_samples.push(level);
+        if recent.len() == FLOOR_WINDOW_MS / BLOCK_MS {
+            recent.pop_front();
+        }
+        recent.push_back(level);
+        if (pcm.len() * 1000 / SAMPLE_RATE) < CALIBRATION_MS as usize || recent.len() < 2 {
             on_level(0.0);
             continue;
         }
-        let nf = *floor.get_or_insert_with(|| (floor_samples.iter().sum::<f32>() / floor_samples.len() as f32).max(1e-4));
+        let nf = recent.iter().cloned().fold(f32::MAX, f32::min).max(1e-4);
         let floor_threshold = nf * p.silence_margin;
         if level > floor_threshold {
             loud.push(level);
@@ -436,6 +440,32 @@ mod tests {
         // a debug build is ~20x slower than release; this still catches trig
         // creeping back into the inner loop
         assert!(per_second < 0.25, "{:.3} s per second of audio", per_second);
+    }
+
+    /// Prints the real mic's block levels for 4 s (diagnosis only).
+    #[test]
+    #[ignore]
+    fn live_mic_levels() {
+        let mic = Mic::open().unwrap();
+        let levels: Vec<f32> = (0..133).filter_map(|_| mic.read()).map(|b| rms(&b)).collect();
+        for (i, c) in levels.chunks(10).enumerate() {
+            eprintln!("{:>5} ms: {:?}", i * 300, c.iter().map(|l| (l * 1e4).round() / 1e4).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    fn warming_mic_does_not_hold_the_recording_open() {
+        // measured on a real mic: ~0.0005 while it warms up, then room
+        // noise between 0.0035 and 0.0107
+        let noise = |i: usize| [0.006f32, 0.0035, 0.0107, 0.005, 0.008][i % 5];
+        let mut blocks: Vec<f32> = vec![0.0005; 12];
+        blocks.extend((0..30).map(|_| 0.1)); // ~1 s of speech
+        blocks.extend((0..400).map(noise)); // 12 s of room noise
+        let total = blocks.len();
+        let mut it = blocks.into_iter().map(|l| vec![l; BLOCK]);
+        let p = RecordParams { silence_hold_ms: 2000, silence_margin: 3.5, peak_ratio: 0.12, start_timeout_ms: None };
+        let pcm = record_until_silence(|| it.next(), &p, || false, |_| {}).ok().unwrap();
+        assert!(pcm.len() < total * BLOCK / 2, "stopped after {} of {total} blocks", pcm.len() / BLOCK);
     }
 
     #[test]

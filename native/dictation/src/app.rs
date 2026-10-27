@@ -170,7 +170,7 @@ impl Shared {
         };
         let esc = hotkey::EscapeGrab::new();
         let result = match Mic::open() {
-            Ok(mic) => audio::record_until_silence(&mic, &params, || self.should_cancel(&esc), |l| self.post(UiEvent::Level(l))).ok(),
+            Ok(mic) => audio::record_until_silence(|| mic.read(), &params, || self.should_cancel(&esc), |l| self.post(UiEvent::Level(l))).ok(),
             Err(e) => {
                 println!("[recording] mic error: {e}");
                 None

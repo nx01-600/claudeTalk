@@ -261,7 +261,7 @@ Fragile details that must survive:
 - **Wait for modifiers:** before pasting, wait up to 1 s for Shift, Alt and Win to be released.
 - **Strict wake mode** while Claude talks and for 0.8 s after.
 - **P75 speech level:** coughs don't mute later speech.
-- **Calibration** keeps collecting samples until it has some, so a cold device never yields NaN.
+- **Noise floor** is the quietest block of the last 1.5 s, not the mean of the first 300 ms (see below).
 
 ## Changes on purpose (Rust port)
 
@@ -273,6 +273,10 @@ Fragile details that must survive:
   are no longer needed. The `edge_tts_path` and `ffplay_path` keys are ignored.
 - **Panel "Turn off dictation"** also deletes `persistent.flag`, like the tray does.
 - **`transcribe` is serialised** (it could overlap wake and dictation before).
+- **Rolling noise floor (v0.8.7):** the recorder's floor was the mean of the
+  first 300 ms. A mic warming up reads near zero there, so steady room noise
+  stayed above the threshold and the recording never stopped on silence. The
+  floor is now the quietest 30 ms block of the last 1.5 s.
 - **Dictation daemon (v0.7):**
   - Whisper large-v3-turbo q8_0 on whisper.cpp with Vulkan, instead of
     faster-whisper fp16 on CUDA. It makes fewer errors on the test set; see
