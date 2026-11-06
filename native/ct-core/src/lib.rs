@@ -2,6 +2,7 @@
 //! writes (see native/SPEC.md §2), sessions and voices, the speech queue, and
 //! the transcript rules the Stop hook uses.
 
+pub mod audio_out;
 pub mod fsutil;
 pub mod http;
 pub mod lang;

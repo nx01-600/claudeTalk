@@ -123,6 +123,7 @@ errors exit 1.
 - `glass 60`, `position "bottom"`, `remember_drag false`, `drag_pos null`, `show_in_capture false`
 - `language "es"`
 - `tts_voice "es-CO-GonzaloNeural"`, `tts_rate "+0%"`, `tts_volume 100`
+- `input_device ""`, `output_device ""` (device names; "" = system default)
 
 Hook payload fields that are read: `session_id`, `cwd`, `transcript_path`,
 `last_assistant_message`, `prompt`, `source`. Stdin is raw UTF-8.
@@ -376,3 +377,4 @@ Fragile details that must survive:
 - **v0.8.7 (review):** `paste_if_focus_unchanged` also checks the tab title before pasting; a failed clipboard write aborts the paste; headless claude.exe are skipped when listing consoles; `prune_old_sessions` skips live sessions.
 - **v0.8.7 (hardening):** `Tracked.pid` is (pid, process start time); a tracked window needs >=1 console with its title (else ignored, `REJECTED` cache); the speaker re-checks the queue after arming the change notification and the item file after writing the pid file; the daemon refreshes `talk-active.flag` every 5 s from the live sessions.
 - **v0.8.7 (voice):** Sec-MS-GEC v2 (`edge_drm.rs`, port of edge-tts 7.3 `generate_sec_ms_gec_v2`) with `Sec-MS-GEC-Version=2-<edge_version>`; a 403 stores the server `Date` skew and `synthesize` retries once.
+- **v0.9.0 (devices):** `input_device` / `output_device` hold a device name from the gear panel's menus ("" = system default). `Mic::open` and `ct_core::audio_out::open_sink` (speaker, chime) look the name up and fall back to the default device when it is missing. The wake listener reopens the mic when `input_device` changes; the speaker reopens its sink when `output_device` differs from the one it opened.

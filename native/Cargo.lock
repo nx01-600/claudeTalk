@@ -412,6 +412,7 @@ version = "0.8.7"
 dependencies = [
  "fancy-regex",
  "regex",
+ "rodio",
  "serde",
  "serde_json",
  "unicode-normalization",

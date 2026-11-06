@@ -42,7 +42,7 @@ pub fn chime_samples() -> Vec<f32> {
 /// Plays the chime without blocking the caller.
 pub fn chime_start() {
     std::thread::spawn(|| {
-        let Ok(mut sink) = rodio::DeviceSinkBuilder::open_default_sink() else { return };
+        let Ok(mut sink) = ct_core::audio_out::open_sink(&ct_core::settings::device("output_device")) else { return };
         sink.log_on_drop(false);
         let player = rodio::Player::connect_new(sink.mixer());
         player.append(SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(RATE).unwrap(), chime_samples()));

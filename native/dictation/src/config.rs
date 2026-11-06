@@ -32,6 +32,8 @@ pub fn defaults() -> Map<String, Value> {
         "tts_voice": pack.default_voice(),
         "tts_rate": "+0%",
         "tts_volume": 100,
+        "input_device": "",
+        "output_device": "",
         "edge_version": ""
     });
     v.as_object().unwrap().clone()

@@ -7,7 +7,7 @@ use ct_core::lock::{named, wide, NamedMutex};
 use ct_core::queue::{self, Item, CUT_EVENT, DUCKING_EVENT, SPEAKER_MUTEX, SPEAKING_EVENT};
 use ct_core::{log::log, paths, voice_link};
 use rodio::buffer::SamplesBuffer;
-use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
+use rodio::{Decoder, Player, Source};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
@@ -93,7 +93,7 @@ fn cacheable(text: &str) -> bool {
 pub fn run() {
     let Some(mutex) = NamedMutex::new(SPEAKER_MUTEX) else { return };
     let cut = unsafe { CreateEventW(std::ptr::null(), 0, 0, named(CUT_EVENT).as_ptr()) };
-    let mut audio: Option<(rodio::MixerDeviceSink, Player)> = None;
+    let mut audio: Option<(rodio::MixerDeviceSink, Player, String)> = None;
     loop {
         let Some(guard) = mutex.acquire(0) else { return }; // another speaker drains
         drain(&mut audio, cut);
@@ -107,7 +107,7 @@ pub fn run() {
     unsafe { CloseHandle(cut) };
 }
 
-fn drain(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, cut: HANDLE) {
+fn drain(audio: &mut Option<(rodio::MixerDeviceSink, Player, String)>, cut: HANDLE) {
     while let Some(next) = queue::pending().into_iter().next() {
         if let Some(item) = queue::read_item(&next) {
             play_item(audio, &item, &next, cut);
@@ -117,7 +117,7 @@ fn drain(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, cut: HANDLE) {
 }
 
 /// Waits up to IDLE_EXIT for new queue files, draining them as they come.
-fn wait_for_more(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, cut: HANDLE) {
+fn wait_for_more(audio: &mut Option<(rodio::MixerDeviceSink, Player, String)>, cut: HANDLE) {
     let dir = paths::queue_dir();
     let _ = fs::create_dir_all(&dir);
     let h = unsafe {
@@ -163,7 +163,7 @@ fn cache_path(voice: &str, rate: &str, text: &str) -> Option<PathBuf> {
     Some(paths::tts_cache_dir().join(format!("{key}.mp3")))
 }
 
-fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, file: &std::path::Path, cut: HANDLE) {
+fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player, String)>, item: &Item, file: &std::path::Path, cut: HANDLE) {
     // The user is dictating (voice-input/duck.py): the phrase goes a bit slower.
     let mut rate = if item.rate.is_empty() { "+0%".to_string() } else { item.rate.clone() };
     if paths::ducking_flag().exists() {
@@ -175,12 +175,17 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
     if !file.exists() {
         return;
     }
+    // The user picked other speakers in the gear panel since the last phrase.
+    let device = ct_core::settings::device("output_device");
+    if audio.as_ref().is_some_and(|a| a.2 != device) {
+        *audio = None;
+    }
     if audio.is_none() {
-        match DeviceSinkBuilder::open_default_sink() {
+        match ct_core::audio_out::open_sink(&device) {
             Ok(mut sink) => {
                 sink.log_on_drop(false);
                 let player = Player::connect_new(sink.mixer());
-                *audio = Some((sink, player));
+                *audio = Some((sink, player, device));
             }
             Err(e) => {
                 log(&format!("speaker: no audio device: {e}"));
@@ -188,7 +193,7 @@ fn play_item(audio: &mut Option<(rodio::MixerDeviceSink, Player)>, item: &Item, 
             }
         }
     }
-    let (_, player) = audio.as_ref().unwrap();
+    let (_, player, _) = audio.as_ref().unwrap();
     let base = item.volume.clamp(0, 100) as f32 / 100.0;
     let volume_seq = voice_link::get().map(|l| l.volume().0).unwrap_or(0);
     // A phrase that starts mid-dictation starts already ducked.

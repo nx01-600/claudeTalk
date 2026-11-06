@@ -12,3 +12,4 @@ fancy-regex.workspace = true
 unicode-normalization.workspace = true
 windows-sys.workspace = true
 ureq.workspace = true
+rodio = { version = "0.22", default-features = false, features = ["playback"] }

@@ -544,6 +544,33 @@ impl App {
         self.redraw_all();
     }
 
+    /// Menu of the mics or speakers at the cursor; the chosen name ("" =
+    /// system default), None if dismissed.
+    fn pick_device(&self, key: &str) -> Option<String> {
+        let names = if key == "input_device" { crate::audio::input_names() } else { ct_core::audio_out::output_names() };
+        let current = self.shared.config.lock().unwrap().str(key);
+        unsafe {
+            let m = CreatePopupMenu();
+            let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
+            AppendMenuW(m, MF_STRING | check(current.is_empty()), 1, wide(&panel::tr("System default")).as_ptr());
+            AppendMenuW(m, MF_SEPARATOR, 0, std::ptr::null());
+            for (i, n) in names.iter().enumerate() {
+                AppendMenuW(m, MF_STRING | check(*n == current), i + 2, wide(n).as_ptr());
+            }
+            let mut p = POINT { x: 0, y: 0 };
+            GetCursorPos(&mut p);
+            SetForegroundWindow(self.main);
+            let cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_NONOTIFY, p.x, p.y, 0, self.main, std::ptr::null()) as usize;
+            PostMessageW(self.main, WM_NULL, 0, 0);
+            DestroyMenu(m);
+            match cmd {
+                0 => None,
+                1 => Some(String::new()),
+                n => names.get(n - 2).cloned(),
+            }
+        }
+    }
+
     fn preview(&self, sample: &str) {
         let (voice, rate, vol) = {
             let c = self.shared.config.lock().unwrap();
@@ -645,6 +672,11 @@ impl App {
                     self.editor.open(&key, &value, x, y, w, h, s);
                 }
                 Action::Preview(sample) => self.preview(sample),
+                Action::PickDevice(key) => {
+                    if let Some(name) = self.pick_device(key) {
+                        self.set(key, json!(name), from);
+                    }
+                }
             }
         }
         self.start_frames();

@@ -30,6 +30,12 @@ pub fn set(key: &str, value: Value) -> std::io::Result<()> {
     write_json(&paths::settings_file(), &Value::Object(all))
 }
 
+/// A device picked in the gear panel (`input_device`, `output_device`):
+/// its name, or "" for the system default.
+pub fn device(key: &str) -> String {
+    read_all().get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+}
+
 /// The voice-related settings every hook needs.
 #[derive(Clone, Debug)]
 pub struct Gear {

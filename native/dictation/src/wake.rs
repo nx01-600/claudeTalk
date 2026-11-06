@@ -191,6 +191,10 @@ fn listen(mic: &Mic, transcriber: &Transcriber, vad: &mut Vad, h: &Hooks) {
         let level = audio::rms(&block);
         // The queue folder is read at most every 150 ms (v0.5: every block).
         if checked_at.elapsed() > Duration::from_millis(150) {
+            // Another mic picked in the gear panel: reopen with it.
+            if ct_core::settings::device("input_device") != mic.device {
+                return;
+            }
             talking = claude_is_talking();
             checked_at = Instant::now();
         } else if crate::signals::speaking() {

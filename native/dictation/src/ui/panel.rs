@@ -79,7 +79,19 @@ pub enum Row {
     Toggle(&'static str, &'static str),
     Segment(&'static str, &'static str, Vec<(String, String)>),
     Text(&'static str, &'static str),
+    /// A mic or speakers picker (`input_device`, `output_device`): a chip
+    /// with the device's name that opens a menu of the devices.
+    Device(&'static str, &'static str),
     Danger,
+}
+
+/// What a Text or Device chip shows.
+fn chip_text(row: &Row, cfg: &Config) -> String {
+    match row {
+        Row::Device(_, key) if cfg.str(key).is_empty() => tr("System default"),
+        Row::Text(_, key) | Row::Device(_, key) => cfg.str(key),
+        _ => String::new(),
+    }
 }
 
 fn opts(list: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -106,6 +118,7 @@ fn rows(kind: Kind) -> Vec<Row> {
             Hotkey("Keys"),
             Slider("Silence cutoff", "silence_ms", Range { low: 500.0, high: 10000.0, step: 250.0, fmt: Some(silence_fmt) }),
             Slider("Mic sensitivity", "sensitivity", PERCENT),
+            Device("Microphone", "input_device"),
             Toggle("Sound on start", "sound"),
             Toggle("Send with Enter", "auto_enter"),
             Group("Appearance"),
@@ -125,6 +138,7 @@ fn rows(kind: Kind) -> Vec<Row> {
             v.extend([
                 Segment("Speed", "tts_rate", opts(&[("-15%", "Slow"), ("+0%", "Normal"), ("+20%", "Fast"), ("+40%", "Faster")])),
                 Slider("Volume", "tts_volume", PERCENT),
+                Device("Audio output", "output_device"),
                 Toggle("\u{0}wake", "wake_word"), // label built from the phrase
                 Text("Wake phrase", "wake_phrase"),
                 Toggle("Speak only when I talk", "speak_only_spoken"),
@@ -153,6 +167,7 @@ pub enum Action {
     Close,
     EditText { key: String, value: String, x: i32, y: i32, w: i32, h: i32 },
     Preview(&'static str),
+    PickDevice(&'static str),
 }
 
 enum Item {
@@ -448,8 +463,8 @@ impl Panel {
                 let w = text_width(&self.hotkey_text(cfg), &TextStyle::new(9.0)) + 24.0;
                 R::new(CONTROL_RIGHT - w, cy - 13.0, w, 26.0)
             }
-            Row::Text(_, key) => {
-                let w = (text_width(&cfg.str(key), &TextStyle::new(9.0)) + 24.0).max(90.0).min(TEXT_MAX_W);
+            row @ (Row::Text(..) | Row::Device(..)) => {
+                let w = (text_width(&chip_text(row, cfg), &TextStyle::new(9.0)) + 24.0).max(90.0).min(TEXT_MAX_W);
                 R::new(CONTROL_RIGHT - w, cy - 13.0, w, 26.0)
             }
             _ => rect,
@@ -500,7 +515,7 @@ impl Panel {
                     let c = control.adjusted(-8.0, -6.0, 8.0, 6.0);
                     (Some(index), c.contains(x, y).then_some(Part::Control))
                 }
-                Row::Toggle(..) | Row::Hotkey(_) | Row::Text(..) => {
+                Row::Toggle(..) | Row::Hotkey(_) | Row::Text(..) | Row::Device(..) => {
                     let c = control.adjusted(-4.0, -4.0, 4.0, 4.0);
                     (Some(index), c.contains(x, y).then_some(Part::Control))
                 }
@@ -574,6 +589,7 @@ impl Panel {
                     h: (chip.h * s).round() as i32,
                 }]
             }
+            Row::Device(_, key) => vec![Action::PickDevice(key)],
             Row::Danger => match part {
                 Part::Control => {
                     self.confirming_quit = true;
@@ -690,7 +706,7 @@ impl Panel {
             return;
         }
         let label = match row {
-            Row::Hotkey(l) | Row::Slider(l, ..) | Row::Segment(l, ..) | Row::Text(l, _) => tr(l),
+            Row::Hotkey(l) | Row::Slider(l, ..) | Row::Segment(l, ..) | Row::Text(l, _) | Row::Device(l, _) => tr(l),
             Row::Toggle(l, _) if l.starts_with('\u{0}') => tr("Start with \u{201c}{phrase}\u{201d}").replace("{phrase}", &cfg.str("wake_phrase")),
             Row::Toggle(l, _) => tr(l),
             _ => String::new(),
@@ -778,10 +794,10 @@ impl Panel {
                 }
                 draw_text(pm, &self.hotkey_text(cfg), control, &TextStyle::new(9.0), text(true), HAlign::Center, VAlign::Center, s, ox, oy);
             }
-            Row::Text(_, key) => {
+            row @ (Row::Text(..) | Row::Device(..)) => {
                 gfx::fill(pm, &rounded(control, 8.0), white(if hovered { 34 } else { 22 }), ts);
                 let st = TextStyle::new(9.0);
-                let t = gfx::elide(&cfg.str(key), &st, control.w - 20.0);
+                let t = gfx::elide(&chip_text(row, cfg), &st, control.w - 20.0);
                 draw_text(pm, &t, control, &st, text(true), HAlign::Center, VAlign::Center, s, ox, oy);
             }
             _ => {}

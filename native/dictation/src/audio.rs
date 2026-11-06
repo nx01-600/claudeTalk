@@ -33,6 +33,8 @@ pub struct Cancelled;
 /// An open microphone. Blocks of BLOCK samples arrive on `blocks`; the
 /// device closes when this is dropped.
 pub struct Mic {
+    /// The `input_device` setting it was opened for ("" = system default).
+    pub device: String,
     _stream: cpal::Stream,
     blocks: Receiver<Vec<f32>>,
 }
@@ -40,7 +42,14 @@ pub struct Mic {
 impl Mic {
     pub fn open() -> Result<Self, String> {
         let host = cpal::default_host();
-        let device = host.default_input_device().ok_or("no microphone")?;
+        let wanted = ct_core::settings::device("input_device");
+        // The picked mic, or the default one when it is unplugged.
+        let picked = if wanted.is_empty() {
+            None
+        } else {
+            host.input_devices().ok().and_then(|mut list| list.find(|d| d.description().is_ok_and(|x| x.name() == wanted)))
+        };
+        let device = picked.or_else(|| host.default_input_device()).ok_or("no microphone")?;
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
         let channels = supported.channels() as usize;
         let rate = supported.sample_rate() as f64;
@@ -82,7 +91,7 @@ impl Mic {
         }
         .map_err(|e| e.to_string())?;
         stream.play().map_err(|e| e.to_string())?;
-        Ok(Self { _stream: stream, blocks: rx })
+        Ok(Self { device: wanted, _stream: stream, blocks: rx })
     }
 
     /// Next 30 ms block; None if the device stopped delivering.
@@ -91,6 +100,14 @@ impl Mic {
             Ok(b) => Some(b),
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => None,
         }
+    }
+}
+
+/// Names of the microphones, as the panel lists them.
+pub fn input_names() -> Vec<String> {
+    match cpal::default_host().input_devices() {
+        Ok(list) => list.filter_map(|d| d.description().ok().map(|x| x.name().to_string())).collect(),
+        Err(_) => Vec::new(),
     }
 }
 
