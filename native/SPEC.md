@@ -54,6 +54,9 @@ NFD, and combining marks dropped.
 | sensitivity, sensibilidad | sensitivity | 0..100 |
 | glass, vidrio | glass | 0..100 |
 | hotkey, keys, teclas, atajo | hotkey | VK list, split on `+` (see KeyCodes). f1-f12 map to 0x6F+n; a-z and 0-9 to their VK. At least 2 keys. |
+| mic, microphone, microfono, input, entrada | input_device | `^(default\|predeterminado\|sistema\|system)` → "", else the first input device whose plain name contains the value |
+| noise, ruido, noise_suppression | noise_suppression | bool |
+| output, salida, speakers, altavoces, parlantes | output_device | like mic, over the output devices |
 | sound, sonido | sound | bool |
 | enter, auto_enter, send | auto_enter | bool |
 | wake, wake_word, oye | wake_word | bool |
@@ -123,7 +126,7 @@ errors exit 1.
 - `glass 60`, `position "bottom"`, `remember_drag false`, `drag_pos null`, `show_in_capture false`
 - `language "es"`
 - `tts_voice "es-CO-GonzaloNeural"`, `tts_rate "+0%"`, `tts_volume 100`
-- `input_device ""`, `output_device ""` (device names; "" = system default)
+- `input_device ""`, `output_device ""` (device names; "" = system default), `noise_suppression true`
 
 Hook payload fields that are read: `session_id`, `cwd`, `transcript_path`,
 `last_assistant_message`, `prompt`, `source`. Stdin is raw UTF-8.
@@ -378,3 +381,5 @@ Fragile details that must survive:
 - **v0.8.7 (hardening):** `Tracked.pid` is (pid, process start time); a tracked window needs >=1 console with its title (else ignored, `REJECTED` cache); the speaker re-checks the queue after arming the change notification and the item file after writing the pid file; the daemon refreshes `talk-active.flag` every 5 s from the live sessions.
 - **v0.8.7 (voice):** Sec-MS-GEC v2 (`edge_drm.rs`, port of edge-tts 7.3 `generate_sec_ms_gec_v2`) with `Sec-MS-GEC-Version=2-<edge_version>`; a 403 stores the server `Date` skew and `synthesize` retries once.
 - **v0.9.0 (devices):** `input_device` / `output_device` hold a device name from the gear panel's menus ("" = system default). `Mic::open` and `ct_core::audio_out::open_sink` (speaker, chime) look the name up and fall back to the default device when it is missing. The wake listener reopens the mic when `input_device` changes; the speaker reopens its sink when `output_device` differs from the one it opened.
+- **v0.9.0 (names):** device names are the Windows FriendlyName ("Microphone Array (Intel® ...)"): cpal 0.18's description name, and in cpal 0.17 (rodio) the description's first extended line (`ct_core::audio_out::friendly_name`).
+- **v0.9.0 (noise):** with `noise_suppression` on (default), `audio::Chain` resamples the mic to 48 kHz, runs nnnoiseless (RNNoise, 480-sample frames, i16 scale) and resamples to 16 kHz; off, it resamples straight to 16 kHz. `audio::MIN_FLOOR` (record and wake floors) is 3e-4, up from 1e-4: RNNoise leaves a quiet room at ~3e-5 RMS. Corpus WER 5.44 % → 5.02 % (bench `--denoise`).

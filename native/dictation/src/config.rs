@@ -33,6 +33,7 @@ pub fn defaults() -> Map<String, Value> {
         "tts_rate": "+0%",
         "tts_volume": 100,
         "input_device": "",
+        "noise_suppression": true,
         "output_device": "",
         "edge_version": ""
     });

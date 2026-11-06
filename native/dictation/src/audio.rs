@@ -27,14 +27,18 @@ const MIN_SPEECH_MS: usize = 400;
 const MAX_RECORDING_S: f64 = 300.0;
 const SPEECH_PERCENTILE: f64 = 75.0;
 const FLOOR_WINDOW_MS: usize = 1500;
+/// Lowest noise floor. RNNoise leaves a near-silent room at ~0.00003 RMS
+/// (p90 0.00016, measured); a lower floor made those leftovers count as
+/// speech at high sensitivity. Raw mics sit far above it (0.003+).
+pub const MIN_FLOOR: f32 = 3e-4;
 
 pub struct Cancelled;
 
 /// An open microphone. Blocks of BLOCK samples arrive on `blocks`; the
 /// device closes when this is dropped.
 pub struct Mic {
-    /// The `input_device` setting it was opened for ("" = system default).
-    pub device: String,
+    /// The `input_device` and `noise_suppression` settings it was opened with.
+    opened_with: (String, bool),
     _stream: cpal::Stream,
     blocks: Receiver<Vec<f32>>,
 }
@@ -42,7 +46,7 @@ pub struct Mic {
 impl Mic {
     pub fn open() -> Result<Self, String> {
         let host = cpal::default_host();
-        let wanted = ct_core::settings::device("input_device");
+        let (wanted, denoise) = mic_settings();
         // The picked mic, or the default one when it is unplugged.
         let picked = if wanted.is_empty() {
             None
@@ -57,11 +61,11 @@ impl Mic {
         let config: cpal::StreamConfig = supported.into();
         // ~3 s of backlog; a stalled reader drops blocks instead of growing.
         let (tx, rx) = sync_channel::<Vec<f32>>(100);
-        let mut resampler = Resampler::new(rate, SAMPLE_RATE as f64);
+        let mut chain = Chain::new(rate, denoise);
         let mut pending: Vec<f32> = Vec::with_capacity(BLOCK * 2);
         let mut mono: Vec<f32> = Vec::new();
         let mut push = move |mono: &[f32]| {
-            resampler.process(mono, &mut pending);
+            chain.process(mono, &mut pending);
             while pending.len() >= BLOCK {
                 let block: Vec<f32> = pending.drain(..BLOCK).collect();
                 let _ = tx.try_send(block);
@@ -91,7 +95,13 @@ impl Mic {
         }
         .map_err(|e| e.to_string())?;
         stream.play().map_err(|e| e.to_string())?;
-        Ok(Self { device: wanted, _stream: stream, blocks: rx })
+        Ok(Self { opened_with: (wanted, denoise), _stream: stream, blocks: rx })
+    }
+
+    /// True when the gear panel changed the mic or the noise suppression
+    /// since this one was opened (the wake listener then reopens it).
+    pub fn stale(&self) -> bool {
+        mic_settings() != self.opened_with
     }
 
     /// Next 30 ms block; None if the device stopped delivering.
@@ -100,6 +110,67 @@ impl Mic {
             Ok(b) => Some(b),
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => None,
         }
+    }
+}
+
+fn mic_settings() -> (String, bool) {
+    let all = ct_core::settings::read_all();
+    let device = all.get("input_device").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    (device, all.get("noise_suppression").is_none_or(ct_core::settings::truthy))
+}
+
+/// Device-rate mono to 16 kHz blocks' samples. With noise suppression on,
+/// the audio goes through RNNoise first (nnnoiseless: 48 kHz, 480-sample
+/// frames, i16 scale): steady noise like fans or hum is removed before the
+/// silence detection and Whisper see it.
+struct Chain {
+    to16: Resampler,
+    denoise: Option<Denoise>,
+}
+
+struct Denoise {
+    /// None when the device already runs at 48 kHz.
+    to48: Option<Resampler>,
+    state: Box<nnnoiseless::DenoiseState<'static>>,
+    at48: Vec<f32>,
+    clean: Vec<f32>,
+}
+
+const DENOISE_RATE: f64 = 48_000.0;
+
+impl Chain {
+    fn new(rate: f64, denoise: bool) -> Self {
+        if !denoise {
+            return Self { to16: Resampler::new(rate, SAMPLE_RATE as f64), denoise: None };
+        }
+        let to48 = (rate != DENOISE_RATE).then(|| Resampler::new(rate, DENOISE_RATE));
+        let d = Denoise { to48, state: nnnoiseless::DenoiseState::new(), at48: Vec::new(), clean: Vec::new() };
+        Self { to16: Resampler::new(DENOISE_RATE, SAMPLE_RATE as f64), denoise: Some(d) }
+    }
+
+    fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
+        let Some(d) = &mut self.denoise else {
+            self.to16.process(input, out);
+            return;
+        };
+        match &mut d.to48 {
+            Some(r) => r.process(input, &mut d.at48),
+            None => d.at48.extend_from_slice(input),
+        }
+        const N: usize = nnnoiseless::DenoiseState::FRAME_SIZE;
+        let (mut frame, mut cleaned) = ([0f32; N], [0f32; N]);
+        let mut used = 0;
+        while d.at48.len() - used >= N {
+            for (f, s) in frame.iter_mut().zip(&d.at48[used..used + N]) {
+                *f = s * 32768.0;
+            }
+            d.state.process_frame(&mut cleaned, &frame);
+            d.clean.extend(cleaned.iter().map(|s| s / 32768.0));
+            used += N;
+        }
+        d.at48.drain(..used);
+        self.to16.process(&d.clean, out);
+        d.clean.clear();
     }
 }
 
@@ -256,7 +327,7 @@ pub fn record_until_silence(
             recent.pop_front();
         }
         recent.push_back(level);
-        let nf = recent.iter().cloned().fold(f32::MAX, f32::min).max(1e-4);
+        let nf = recent.iter().cloned().fold(f32::MAX, f32::min).max(MIN_FLOOR);
         let floor_threshold = nf * p.silence_margin;
         if level > floor_threshold {
             loud.push(level);
@@ -459,6 +530,49 @@ mod tests {
         // a debug build is ~20x slower than release; this still catches trig
         // creeping back into the inner loop
         assert!(per_second < 0.25, "{:.3} s per second of audio", per_second);
+    }
+
+    /// Room noise levels of the real mic, raw and through RNNoise, from the
+    /// same audio (diagnosis only; stay quiet while it runs).
+    #[test]
+    #[ignore]
+    fn live_denoise_levels() {
+        let mic = Mic::open().unwrap(); // whatever the settings say
+        drop(mic);
+        let host = cpal::default_host();
+        let device = host.default_input_device().unwrap();
+        let cfg = device.default_input_config().unwrap();
+        let (ch, rate) = (cfg.channels() as usize, cfg.sample_rate() as f64);
+        assert_eq!(cfg.sample_format(), cpal::SampleFormat::F32);
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
+        let stream = device
+            .build_input_stream::<f32, _, _>(cfg.into(), move |d: &[f32], _| {
+                let _ = tx.send(d.chunks(ch).map(|f| f.iter().sum::<f32>() / ch as f32).collect());
+            }, |_| {}, None)
+            .unwrap();
+        stream.play().unwrap();
+        let (mut raw, mut clean) = (Chain::new(rate, false), Chain::new(rate, true));
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(5) {
+            if let Ok(m) = rx.recv_timeout(Duration::from_secs(1)) {
+                raw.process(&m, &mut a);
+                clean.process(&m, &mut b);
+            }
+        }
+        let skip = SAMPLE_RATE; // warm-up
+        let lv = |v: &[f32]| v[skip..].chunks(BLOCK).map(rms).collect::<Vec<f32>>();
+        let (la, lb) = (lv(&a), lv(&b));
+        let med = |v: &[f32]| percentile(v, 50.0);
+        eprintln!("raw   median {:.5} p90 {:.5}", med(&la), percentile(&la, 90.0));
+        eprintln!("clean median {:.5} p90 {:.5}", med(&lb), percentile(&lb, 90.0));
+    }
+
+    /// The daemon (cpal 0.18) and `/talk set mic` (cpal 0.17 via rodio)
+    /// must see the same device names.
+    #[test]
+    fn device_names_match_ct_core() {
+        assert_eq!(input_names(), ct_core::audio_out::input_names());
     }
 
     /// Prints the real mic's block levels for 4 s (diagnosis only).

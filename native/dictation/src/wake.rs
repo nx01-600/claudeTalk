@@ -24,7 +24,7 @@ const BURST_END_MS: usize = 350;
 const BURST_MIN_MS: usize = 300;
 const BURST_MAX_MS: usize = 2500;
 const FLOOR_WINDOW_MS: usize = 4000;
-const MIN_FLOOR: f32 = 1e-4;
+use audio::MIN_FLOOR;
 const TTS_TAIL: Duration = Duration::from_millis(800);
 const SHORT_WORDS: usize = 3;
 const MAX_WAKE_MARGIN: f32 = 3.0;
@@ -191,8 +191,8 @@ fn listen(mic: &Mic, transcriber: &Transcriber, vad: &mut Vad, h: &Hooks) {
         let level = audio::rms(&block);
         // The queue folder is read at most every 150 ms (v0.5: every block).
         if checked_at.elapsed() > Duration::from_millis(150) {
-            // Another mic picked in the gear panel: reopen with it.
-            if ct_core::settings::device("input_device") != mic.device {
+            // Another mic or noise setting picked in the gear panel: reopen.
+            if mic.stale() {
                 return;
             }
             talking = claude_is_talking();

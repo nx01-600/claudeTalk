@@ -119,6 +119,7 @@ fn rows(kind: Kind) -> Vec<Row> {
             Slider("Silence cutoff", "silence_ms", Range { low: 500.0, high: 10000.0, step: 250.0, fmt: Some(silence_fmt) }),
             Slider("Mic sensitivity", "sensitivity", PERCENT),
             Device("Microphone", "input_device"),
+            Toggle("Noise suppression", "noise_suppression"),
             Toggle("Sound on start", "sound"),
             Toggle("Send with Enter", "auto_enter"),
             Group("Appearance"),

@@ -1,4 +1,4 @@
-//! ct-bench MODEL CORPUS_DIR [--cpu] [--runs N]
+//! ct-bench MODEL CORPUS_DIR [--cpu] [--runs N] [--denoise]
 //! Transcribes corpus/NN.wav with whisper.cpp and reports WER against
 //! corpus/sentences.txt, per-file latency and model load time.
 
@@ -30,11 +30,31 @@ fn edits(a: &[String], b: &[String]) -> usize {
     prev[b.len()]
 }
 
+/// RNNoise as the daemon applies it (48 kHz, i16 scale). The corpus is
+/// 16 kHz: linear up x3, then a 3-tap average down (good enough to compare).
+fn denoise(pcm: &[f32]) -> Vec<f32> {
+    let up: Vec<f32> = (0..pcm.len() * 3)
+        .map(|i| {
+            let (j, f) = (i / 3, (i % 3) as f32 / 3.0);
+            let b = *pcm.get(j + 1).unwrap_or(&pcm[j]);
+            (pcm[j] * (1.0 - f) + b * f) * 32768.0
+        })
+        .collect();
+    let mut st = nnnoiseless::DenoiseState::new();
+    let mut out = vec![0f32; up.len()];
+    const N: usize = nnnoiseless::DenoiseState::FRAME_SIZE;
+    for (i, o) in up.chunks_exact(N).zip(out.chunks_exact_mut(N)) {
+        st.process_frame(o, i);
+    }
+    out.chunks(3).map(|c| c.iter().sum::<f32>() / c.len() as f32 / 32768.0).collect()
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let model = &args[1];
     let dir = std::path::Path::new(&args[2]);
     let cpu = args.iter().any(|a| a == "--cpu");
+    let dn = args.iter().any(|a| a == "--denoise");
     let refs: Vec<String> = std::fs::read_to_string(dir.join("sentences.txt")).unwrap().lines().map(str::to_string).collect();
 
     let t0 = Instant::now();
@@ -49,6 +69,7 @@ fn main() {
         let path = dir.join(format!("{i:02}.wav"));
         let mut r = hound::WavReader::open(&path).unwrap();
         let pcm: Vec<f32> = r.samples::<i16>().map(|s| s.unwrap() as f32 / 32768.0).collect();
+        let pcm = if dn { denoise(&pcm) } else { pcm };
         let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         p.set_language(Some("es"));
         p.set_initial_prompt(PROMPT);

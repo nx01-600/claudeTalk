@@ -32,3 +32,11 @@ native\build.cmd bench cargo build --release
 C:\ctb\release\ct-bench.exe %LOCALAPPDATA%\claudeTalk\models\ggml-large-v3-turbo-q8_0.bin corpus
 voice-input\.venv\Scripts\python native\bench\baseline.py native\bench\corpus
 ```
+
+## RNNoise before Whisper (v0.9.0), 2026-11-06
+
+`ct-bench ... --denoise` runs each file through nnnoiseless (RNNoise) the way
+the daemon does with noise suppression on. Same model and corpus:
+WER 5.44 % (13/239) without, **5.02 % (12/239)** with it. No regression.
+On the author's laptop mic array, room noise (fans) went from median RMS
+0.006 to 0.00003 (`audio::tests::live_denoise_levels`).

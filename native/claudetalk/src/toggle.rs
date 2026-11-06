@@ -24,6 +24,9 @@ const HELP: &str = r#"Settings (set <setting> <value>):
   silence      seconds, 0.5 to 10   (pause that ends a dictation)
   sensitivity  0 to 100   (mic sensitivity; higher picks up a softer voice)
   hotkey       keys joined by +, e.g. ctrl+shift+space, alt+f2, lctrl+lshift+space
+  mic          default | part of a microphone's name   (which mic dictation listens to)
+  noise        on | off   (noise suppression: removes fans, hum and room noise from the mic)
+  output       default | part of a speaker's name   (where Claude's voice and the chime play)
   sound        on | off   (chime when recording starts)
   enter        on | off   (press Enter after pasting = send the message)
   wake         on | off   (start dictating by saying the wake phrase)
@@ -207,6 +210,24 @@ pub fn resolve(name: &str, v: &str) -> Result<(&'static str, Value, String), Str
         let b = to_bool(v)?;
         Ok((key, json!(b), format!("{label} {}", on_off(b))))
     };
+    if is(&["noise", "ruido", "noise_suppression"]) {
+        return boolean("noise_suppression", "noise suppression");
+    }
+    let device = |key: &'static str, names: Vec<String>| -> Result<(&'static str, Value, String), String> {
+        if ["default", "predeterminado", "sistema", "system"].iter().any(|d| p.starts_with(d)) {
+            return Ok((key, json!(""), format!("{key} = system default")));
+        }
+        match names.iter().find(|n| !p.is_empty() && plain(n).contains(&p)) {
+            Some(n) => Ok((key, json!(n), format!("{key} = {n}"))),
+            None => Err(format!("no device matches '{v}'. Options: default, {}.", names.join(", "))),
+        }
+    };
+    if is(&["mic", "microphone", "microfono", "input", "entrada"]) {
+        return device("input_device", ct_core::audio_out::input_names());
+    }
+    if is(&["output", "salida", "speakers", "altavoces", "parlantes"]) {
+        return device("output_device", ct_core::audio_out::output_names());
+    }
     if is(&["sound", "sonido"]) {
         return boolean("sound", "start chime");
     }

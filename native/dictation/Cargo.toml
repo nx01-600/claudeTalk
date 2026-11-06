@@ -20,6 +20,7 @@ unicode-normalization.workspace = true
 whisper-rs = "0.16"
 whisper-rs-sys = "0.15"
 cpal = "0.18"
+nnnoiseless = { version = "0.5", default-features = false }
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
 tiny-skia = "0.12"
 ab_glyph = "0.2"

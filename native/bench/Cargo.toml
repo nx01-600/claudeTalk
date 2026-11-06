@@ -16,6 +16,7 @@ cuda = ["whisper-rs/cuda"]
 [dependencies]
 whisper-rs = "0.16"
 hound = "3"
+nnnoiseless = { version = "0.5", default-features = false }
 unicode-normalization = "0.1"
 
 [profile.release]
