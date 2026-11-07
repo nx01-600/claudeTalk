@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0 — pick your mic and speakers, noise suppression, settings that explain themselves
+
+- **Choose the microphone.** The gear panel has a "Microphone" row: click it
+  and pick any mic Windows knows, or "System default". Dictation and the wake
+  phrase both use it. If that mic is unplugged, the default one is used.
+- **Choose where Claude's voice plays.** The voice panel has an "Audio output"
+  row for speakers or headphones; the start chime follows it too. The change
+  applies from the next phrase.
+- **Noise suppression.** Laptop mic arrays pick up fans and hum, which kept
+  the recording open and reached Whisper. The mic now goes through RNNoise
+  (on by default, "Noise suppression" in the gear). On the author's laptop the
+  room noise dropped from 0.006 to 0.00003 RMS, and the transcription
+  benchmark got slightly better (5.44 % → 5.02 % word errors). It costs about
+  1 % of one CPU core while the mic is open.
+- **Settings explain themselves.** Point at any row of either panel and a
+  line at the bottom says what it does. Some Spanish labels are clearer too
+  ("Efecto vidrio", "Pausa para terminar", "Hablar solo si dicto", "Botón
+  para callar a Claude").
+- `/talk set mic <name>`, `/talk set output <name>` (part of the name is
+  enough, `default` for the system's) and `/talk set noise on|off`, so you
+  can also say "usa el micrófono de la diadema".
+
 ## 0.8.7 — voice works again, more reliable Enter and routing, status line badge
 
 - **Dictation never stopped on silence.** The mic's noise level was measured

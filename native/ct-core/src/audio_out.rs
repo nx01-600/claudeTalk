@@ -45,3 +45,17 @@ pub fn open_sink(name: &str) -> Result<MixerDeviceSink, rodio::DeviceSinkError> 
     DeviceSinkBuilder::open_default_sink()
 }
 
+
+#[cfg(test)]
+mod tests {
+    /// Every listed output opens by its name (needs real devices).
+    #[test]
+    #[ignore]
+    fn each_output_opens_by_name() {
+        for name in super::output_names() {
+            let sink = super::open_sink(&name);
+            eprintln!("{name}: {}", if sink.is_ok() { "ok" } else { "FAILED" });
+            assert!(sink.is_ok());
+        }
+    }
+}

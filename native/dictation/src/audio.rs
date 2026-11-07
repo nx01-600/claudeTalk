@@ -568,6 +568,21 @@ mod tests {
         eprintln!("clean median {:.5} p90 {:.5}", med(&lb), percentile(&lb, 90.0));
     }
 
+    #[test]
+    fn denoise_is_cheap() {
+        let input: Vec<f32> = (0..48_000 * 5).map(|i| ((i as f32) * 0.01).sin() * 0.1).collect();
+        let mut c = Chain::new(48_000.0, true);
+        let mut out = Vec::new();
+        let t0 = std::time::Instant::now();
+        for chunk in input.chunks(480) {
+            c.process(chunk, &mut out);
+        }
+        let per_second = t0.elapsed().as_secs_f64() / 5.0;
+        eprintln!("denoise chain: {:.2} ms per second of audio", per_second * 1000.0);
+        assert!((out.len() as i64 - 16_000 * 5).abs() < 1_000, "{} samples out", out.len());
+        assert!(per_second < 0.5, "{:.3} s per second of audio", per_second);
+    }
+
     /// The daemon (cpal 0.18) and `/talk set mic` (cpal 0.17 via rodio)
     /// must see the same device names.
     #[test]
