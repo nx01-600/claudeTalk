@@ -85,6 +85,57 @@ pub enum Row {
     Danger,
 }
 
+/// The lines under the rows that say what the pointed setting does.
+const HINT_H: f32 = 40.0;
+const HINT_DEFAULT: &str = "Point at a setting to see what it does.";
+
+fn hint(row: &Row) -> &'static str {
+    let key = match row {
+        Row::Hotkey(_) => "hotkey",
+        Row::Slider(_, k, _) | Row::Toggle(_, k) | Row::Segment(_, k, _) | Row::Text(_, k) | Row::Device(_, k) => k,
+        _ => "",
+    };
+    match key {
+        "hotkey" => "Shortcut that starts and stops a dictation. Click it and press the new keys.",
+        "silence_ms" => "How long you have to stay quiet for the dictation to end and be sent.",
+        "sensitivity" => "Higher picks up a softer or farther voice; lower ignores more background sound.",
+        "input_device" => "Which microphone the dictation and the wake phrase listen to.",
+        "noise_suppression" => "Removes fans, hum and room noise from the mic before transcribing.",
+        "sound" => "Plays a short chime when the mic starts recording.",
+        "auto_enter" => "Presses Enter after pasting the text, so the message is sent by itself.",
+        "glass" => "How strong the frosted-glass look of the bar and panels is.",
+        "position" => "Whether the dictation bar appears at the bottom or at the top of the screen.",
+        "remember_drag" => "If you drag the bar somewhere else, it comes back to that spot next time.",
+        "show_in_capture" => "Lets the bar and panels show up when you share or record your screen.",
+        "lang" => "claudeTalk's language: the voices, the dictation and these panels follow it.",
+        "\u{1}auto_language" => "Each dictation is transcribed in the language you speak, not only the one above.",
+        "tts_voice" => "Claude's voice when talk mode is on. Picking one plays a sample.",
+        "tts_rate" => "How fast Claude talks.",
+        "tts_volume" => "How loud Claude talks. Only claudeTalk's voice, not the system volume.",
+        "output_device" => "Speakers or headphones where Claude's voice and the chime play.",
+        "wake_word" => "Start a dictation hands-free by saying the phrase. The mic keeps listening.",
+        "wake_phrase" => "The words that start a dictation. Click to change them.",
+        "speak_only_spoken" => "Claude answers out loud only to messages you dictated, not to typed ones.",
+        "speaking_indicator" => "While Claude talks, shows a small bar with a button that silences it.",
+        _ => HINT_DEFAULT,
+    }
+}
+
+/// Greedy word wrap to `max_w`.
+fn wrap(text: &str, st: &TextStyle, max_w: f32) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(l) if text_width(&format!("{l} {word}"), st) <= max_w => {
+                l.push(' ');
+                l.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
+}
+
 /// What a Text or Device chip shows.
 fn chip_text(row: &Row, cfg: &Config) -> String {
     match row {
@@ -259,7 +310,7 @@ impl Panel {
             y += ROW_H;
         }
         out.push(Item::GroupEnd);
-        (out, y + PAD)
+        (out, y + HINT_H + PAD)
     }
 
     pub fn content_height(&self) -> f32 {
@@ -681,6 +732,16 @@ impl Panel {
                     self.paint_row(&mut pm, *index, *r, cfg, ts, s, ox, oy);
                 }
             }
+        }
+        let pointed = match self.hover {
+            Some((Some(i), _)) => hint(&self.rows[i]),
+            _ => HINT_DEFAULT,
+        };
+        let st = TextStyle::new(8.0);
+        let area = R::new(PAD + 4.0, self.content_height() - PAD - HINT_H + 6.0, PANEL_W - 2.0 * PAD - 8.0, HINT_H);
+        for (n, line) in wrap(&tr(pointed), &st, area.w).iter().take(3).enumerate() {
+            let r = R::new(area.x, area.y + n as f32 * 12.5, area.w, 12.5);
+            draw_text(&mut pm, line, r, &st, text(false), HAlign::Left, VAlign::Center, s, ox, oy);
         }
         pm
     }
